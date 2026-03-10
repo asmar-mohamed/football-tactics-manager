@@ -6,11 +6,16 @@ use Illuminate\Database\Eloquent\Model;
 
 class Team extends Model
 {
-    protected $fillable = ['name', 'coach_id'];
+    protected $fillable = ['name', 'coach_id', 'active_tactic_id'];
 
     public function coach()
     {
         return $this->belongsTo(User::class, 'coach_id');
+    }
+
+    public function activeTactic()
+    {
+        return $this->belongsTo(Tactic::class, 'active_tactic_id');
     }
 
     public function players()

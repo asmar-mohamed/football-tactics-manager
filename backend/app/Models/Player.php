@@ -17,4 +17,9 @@ class Player extends Model
     {
         return $this->hasMany(PlayerPosition::class);
     }
+
+    public function tacticalInstructions()
+    {
+        return $this->belongsToMany(TacticalInstruction::class, 'instruction_player');
+    }
 }

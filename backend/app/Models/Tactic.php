@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class Tactic extends Model
 {
-    protected $fillable = ['name', 'formation', 'team_id'];
+    protected $fillable = ['name', 'formation', 'team_id', 'is_default'];
 
     public function team()
     {
@@ -16,5 +16,10 @@ class Tactic extends Model
     public function playerPositions()
     {
         return $this->hasMany(PlayerPosition::class);
+    }
+
+    public function tacticalInstructions()
+    {
+        return $this->hasMany(TacticalInstruction::class);
     }
 }
