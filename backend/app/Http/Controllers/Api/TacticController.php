@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Tactic;
 use App\Models\Team;
+use App\Models\Player;
 use Illuminate\Http\Request;
 use App\Http\Requests\StoreTacticRequest;
 use App\Http\Requests\UpdateTacticRequest;
@@ -56,8 +57,10 @@ class TacticController extends Controller
 
             if ($request->has('positions')) {
                 foreach ($request->positions as $pos) {
+                    // Ensure player is on the same team
+                    $player = Player::where('team_id', $team->id)->findOrFail($pos['player_id']);
                     $tactic->playerPositions()->create([
-                        'player_id' => $pos['player_id'],
+                        'player_id' => $player->id,
                         'x_position' => $pos['x_position'],
                         'y_position' => $pos['y_position'],
                     ]);
@@ -81,7 +84,7 @@ class TacticController extends Controller
         
         return response()->json([
             'message' => 'Tactic details',
-            'data' => $tactic->load(['playerPositions.player', 'tacticalInstructions.players'])
+            'data' => $tactic->load(['playerPositions.player.category', 'tacticalInstructions.players'])
         ]);
     }
 

@@ -10,18 +10,14 @@ class TeamSeeder extends Seeder
 {
     public function run(): void
     {
-        $coach = User::first();
-        if (!$coach) {
-            $coach = User::create([
-                'name' => 'Coach Tester',
-                'email' => 'coach@example.com',
-                'password' => bcrypt('password123'),
-            ]);
-        }
+        $coach = User::first() ?? User::factory()->create([
+            'name' => 'Coach Tester',
+            'email' => 'coach@example.com',
+            'password' => bcrypt('password123'),
+        ]);
 
-        Team::create([
-            'name' => 'FC Test',
-            'coach_id' => $coach->id,
+        Team::factory()->for($coach, 'coach')->create([
+            'name' => 'Real Madrid CF',
         ]);
     }
 }

@@ -17,9 +17,11 @@ class PlayerController extends Controller
         if ($request->has('team_id')) {
             $team = Team::findOrFail($request->team_id);
             $this->authorize('view', $team);
-            $players = $team->players;
+            $players = $team->players()->with('category')->get();
         } else {
-            $players = Player::whereIn('team_id', Auth::user()->teams->pluck('id'))->get();
+            $players = Player::whereIn('team_id', Auth::user()->teams->pluck('id'))
+                ->with('category')
+                ->get();
         }
 
         return response()->json([
@@ -37,7 +39,7 @@ class PlayerController extends Controller
 
         return response()->json([
             'message' => 'Player created',
-            'data' => $player
+            'data' => $player->load('category')
         ], 201);
     }
 
@@ -46,7 +48,7 @@ class PlayerController extends Controller
         $this->authorize('view', $player->team);
         return response()->json([
             'message' => 'Player details',
-            'data' => $player
+            'data' => $player->load('category')
         ]);
     }
 
@@ -57,7 +59,7 @@ class PlayerController extends Controller
 
         return response()->json([
             'message' => 'Player updated',
-            'data' => $player
+            'data' => $player->load('category')
         ]);
     }
 
