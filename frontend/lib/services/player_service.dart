@@ -4,7 +4,7 @@ import '../models/player.dart';
 class PlayerService {
   final _api = ApiClient.instance;
 
-  Future<List<Player>> fetchPlayers() async {
+  Future<List<Player>> fetchPlayers({String? role}) async {
     final res = await _api.get('/players');
 
     final list = res is Map<String, dynamic>
@@ -13,6 +13,8 @@ class PlayerService {
             ? res
             : <dynamic>[];
 
-    return list.map((e) => Player.fromMap(e as Map<String, dynamic>)).toList();
+    final players = list.map((e) => Player.fromMap(e as Map<String, dynamic>)).toList();
+    if (role == null || role.isEmpty) return players;
+    return players.where((p) => p.role == role).toList();
   }
 }

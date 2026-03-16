@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'dart:math';
+
+import '../services/player_service.dart';
 
 class TacticalPitch extends StatefulWidget {
   const TacticalPitch({super.key});
@@ -17,27 +20,58 @@ class _PlayerData {
 
 class _TacticalPitchState extends State<TacticalPitch> {
   static const double _tokenSize = 56; // approx size of token widget
-  late List<_PlayerData> _players;
+  static const List<Offset> _starterSlots = [
+    Offset(0.08, 0.50), // GK
+    Offset(0.25, 0.15), // LB
+    Offset(0.22, 0.38), // CB
+    Offset(0.22, 0.62), // CB
+    Offset(0.25, 0.85), // RB
+    Offset(0.45, 0.25), // CM
+    Offset(0.45, 0.50), // CM
+    Offset(0.45, 0.75), // CM
+    Offset(0.75, 0.20), // LW
+    Offset(0.80, 0.50), // ST
+    Offset(0.75, 0.80), // RW
+  ];
+
+  final PlayerService _playerService = PlayerService();
+  List<_PlayerData> _players = [];
+  bool _loading = true;
+  String? _error;
 
   @override
   void initState() {
     super.initState();
-    // FIXED: Coordinates mapped for a HORIZONTAL pitch (Attacking Left to Right)
-    // X goes from 0.0 (left goal) to 1.0 (right goal)
-    // Y goes from 0.0 (top sideline) to 1.0 (bottom sideline)
-    _players = [
-      _PlayerData('G. Keeper', 'GK', const Offset(0.08, 0.50)), // Left goal
-      _PlayerData('L. Back', 'LB', const Offset(0.25, 0.15)),   // Defense line
-      _PlayerData('L. Center', 'CB', const Offset(0.22, 0.38)),
-      _PlayerData('R. Center', 'CB', const Offset(0.22, 0.62)),
-      _PlayerData('R. Back', 'RB', const Offset(0.25, 0.85)),
-      _PlayerData('L. Mid', 'CM', const Offset(0.45, 0.25)),    // Midfield line
-      _PlayerData('C. Mid', 'CM', const Offset(0.45, 0.50)),
-      _PlayerData('R. Mid', 'CM', const Offset(0.45, 0.75)),
-      _PlayerData('L. Wing', 'LW', const Offset(0.75, 0.20)),   // Attack line
-      _PlayerData('Striker', 'ST', const Offset(0.80, 0.50)),
-      _PlayerData('R. Wing', 'RW', const Offset(0.75, 0.80)),
-    ];
+    _loadStarters();
+  }
+
+  Future<void> _loadStarters() async {
+    try {
+      final starters = await _playerService.fetchPlayers(role: 'starter');
+      starters.sort((a, b) => a.number.compareTo(b.number));
+
+      final count = min(starters.length, _starterSlots.length);
+      _players = List.generate(
+        count,
+        (i) => _PlayerData(
+          starters[i].name,
+          starters[i].number.toString(),
+          _starterSlots[i],
+        ),
+      );
+
+      if (_players.isEmpty) {
+        _error = 'No starter players found';
+      }
+    } catch (_) {
+      _error = 'Failed to load starter players';
+    } finally {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+        });
+      }
+    }
   }
 
   @override
@@ -51,6 +85,15 @@ class _TacticalPitchState extends State<TacticalPitch> {
               fit: StackFit.expand,
               children: [
                 CustomPaint(painter: _PitchPainter()),
+                if (_loading)
+                  const Center(child: CircularProgressIndicator()),
+                if (!_loading && _error != null && _players.isEmpty)
+                  Center(
+                    child: Text(
+                      _error!,
+                      style: TextStyle(color: Colors.red.shade700, fontWeight: FontWeight.w600),
+                    ),
+                  ),
                 for (var i = 0; i < _players.length; i++)
                   Positioned(
                     left: _players[i].pos.dx * constraints.maxWidth - (_tokenSize / 2),
@@ -97,21 +140,87 @@ class _PlayerToken extends StatelessWidget {
   final String number;
   final bool elevated;
 
+  String _initialsFromName(String fullName) {
+    final parts = fullName
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((p) => p.isNotEmpty)
+        .toList();
+
+    if (parts.isEmpty) return '?';
+    if (parts.length == 1) {
+      final word = parts.first;
+      return (word.length >= 2 ? word.substring(0, 2) : word).toUpperCase();
+    }
+    return '${parts.first[0]}${parts.last[0]}'.toUpperCase();
+  }
+
   @override
   Widget build(BuildContext context) {
+    final initials = _initialsFromName(name);
+
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        CircleAvatar(
-          radius: 20,
-          backgroundColor: const Color(0xFF1ED6B0),
-          foregroundColor: Colors.white,
-          child: Text(
-            number,
-            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
-          ),
+        Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: const Color(0xFF1ED6B0).withValues(alpha: 0.55),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.45), width: 2),
+                boxShadow: elevated
+                    ? [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.25),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ]
+                    : null,
+              ),
+              alignment: Alignment.center,
+              child: Text(
+                initials,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.3,
+                ),
+              ),
+            ),
+            Positioned(
+              right: -2,
+              bottom: -2,
+              child: Container(
+                width: 20,
+                height: 20,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: const Color(0xFF111827),
+                  border: Border.all(color: Colors.white, width: 1.2),
+                ),
+                alignment: Alignment.center,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    number,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 9,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: 6),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           decoration: BoxDecoration(
@@ -151,7 +260,7 @@ class _PitchPainter extends CustomPainter {
 
     // Slight gradient stripes
     final stripePaint = Paint()
-      ..color = const Color(0xFF1B7A3A).withValues(alpha: 0.22)
+      ..color = const Color.fromARGB(255, 40, 171, 84).withValues(alpha: 0.22)
       ..style = PaintingStyle.fill;
     const stripeCount = 12;
     final stripeWidth = size.width / stripeCount;

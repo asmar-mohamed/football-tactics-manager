@@ -33,7 +33,7 @@ class _DashboardPageState extends State<DashboardPage> {
   @override
   Widget build(BuildContext context) {
     final isAuth = context.watch<AuthProvider>().isAuth;
-    _playersFuture ??= isAuth ? PlayerService().fetchPlayers() : null;
+    _playersFuture ??= isAuth ? PlayerService().fetchPlayers(role: 'substitute') : null;
 
     return Padding(
       padding: const EdgeInsets.all(16),
@@ -41,48 +41,72 @@ class _DashboardPageState extends State<DashboardPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(
-            flex: 20,
+            flex: 12,
             child: _Panel(
-              title: 'Player Bank',
+              title: 'PLAYER BANK',
+              backgroundColor: Colors.white,
+              titleColor: const Color(0xFF0F172A),
+              borderColor: const Color(0xFFE5E7EB),
+              contentPadding: const EdgeInsets.fromLTRB(12, 14, 10, 10),
               expandChild: true,
               child: isAuth
                   ? FutureBuilder<List<Player>>(
                       future: _playersFuture,
                       builder: (context, snapshot) {
                         if (snapshot.connectionState == ConnectionState.waiting) {
-                          return const Center(child: CircularProgressIndicator());
+                          return const Center(
+                            child: CircularProgressIndicator(color: Color(0xFF5ED3E8)),
+                          );
                         }
                         if (snapshot.hasError) {
                           return Text(
                             'Failed to load players',
-                            style: TextStyle(color: Colors.red.shade700),
+                            style: TextStyle(color: Colors.red.shade700, fontWeight: FontWeight.w600),
                           );
                         }
                         final players = snapshot.data ?? [];
                         if (players.isEmpty) {
-                          return const Text('No players found');
+                          return const Text(
+                            'No players found',
+                            style: TextStyle(color: Color(0xFF475569)),
+                          );
                         }
-                        return Scrollbar(
-                          controller: _playerScrollController,
-                          thumbVisibility: true,
-                          child: ListView.separated(
+                        return ScrollbarTheme(
+                          data: ScrollbarThemeData(
+                            thumbColor: WidgetStateProperty.all(const Color(0xFF37C8DF)),
+                            trackColor: WidgetStateProperty.all(Colors.transparent),
+                            thickness: WidgetStateProperty.all(2),
+                            radius: const Radius.circular(99),
+                            mainAxisMargin: 6,
+                            crossAxisMargin: 1,
+                          ),
+                          child: Scrollbar(
                             controller: _playerScrollController,
-                            physics: const BouncingScrollPhysics(),
-                            itemCount: players.length,
-                            separatorBuilder: (context, _) => const SizedBox(height: 8),
-                            itemBuilder: (context, index) {
-                              final p = players[index];
-                              return PlayerListItem(
-                                name: p.name,
-                                number: p.number,
-                                statusColor: Colors.green, // placeholder until backend provides status
-                              );
-                            },
+                            thumbVisibility: true,
+                            trackVisibility: false,
+                            child: ListView.separated(
+                              controller: _playerScrollController,
+                              padding: const EdgeInsets.only(right: 6, left: 4, top: 2, bottom: 8),
+                              physics: const BouncingScrollPhysics(),
+                              itemCount: players.length,
+                              separatorBuilder: (context, _) => const SizedBox(height: 8),
+                              itemBuilder: (context, index) {
+                                final p = players[index];
+                                return PlayerListItem(
+                                  name: p.name,
+                                  number: p.number,
+                                  category: p.categoryName,
+                                );
+                              },
+                            ),
                           ),
                         );
                       },
                     )
-                  : const Text('Please log in to view players'),
+                  : const Text(
+                      'Please log in to view players',
+                      style: TextStyle(color: Color(0xFF475569)),
+                    ),
             ),
           ),
           const SizedBox(width: 12),
@@ -113,20 +137,31 @@ class _Panel extends StatelessWidget {
     required this.title,
     required this.child,
     this.expandChild = false,
+    this.backgroundColor = const Color(0xFFF5F5F5),
+    this.titleColor = Colors.black87,
+    this.borderColor,
+    this.contentPadding = const EdgeInsets.all(16),
   });
 
   final String title;
   final Widget child;
   final bool expandChild;
+  final Color backgroundColor;
+  final Color titleColor;
+  final Color? borderColor;
+  final EdgeInsets contentPadding;
 
   @override
   Widget build(BuildContext context) {
     return Card(
-      color: const Color(0xFFF5F5F5),
+      color: backgroundColor,
       elevation: 0,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: borderColor != null ? BorderSide(color: borderColor!, width: 1) : BorderSide.none,
+      ),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: contentPadding,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -137,10 +172,9 @@ class _Panel extends StatelessWidget {
               child: Text(
                 title,
                 style: const TextStyle(
-                  fontSize: 18, 
-                  fontWeight: FontWeight.w700, 
-                  color: Colors.black87,
-                ),
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ).copyWith(color: titleColor),
               ),
             ),
             const SizedBox(height: 12),
