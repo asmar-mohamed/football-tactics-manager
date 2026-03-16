@@ -1,56 +1,64 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../services/api_service.dart';
+
+import '../core/api_client.dart';
+import '../models/user.dart';
+import '../services/auth_service.dart';
 
 class AuthProvider extends ChangeNotifier {
+  final AuthService _service = AuthService();
+  User? user;
   String? token;
+  bool _initialised = false;
 
-  final ApiService api = ApiService();
-
+  bool get isReady => _initialised;
   bool get isAuth => token != null;
 
-  Future login(String email, String password) async {
-    final data = await api.login(email, password);
-
-    token = data['token'];
-
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString("token", token!);
-
-    notifyListeners();
+  AuthProvider() {
+    _loadToken();
   }
 
-  Future register(String name, String email, String password) async {
-    final data = await api.register(name, email, password);
-
-    token = data['token'];
-
+  Future<void> _loadToken() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString("token", token!);
-
-    notifyListeners();
-  }
-
-  Future logout() async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString("token");
-
+    token = prefs.getString('token');
     if (token != null) {
-      await api.logout(token);
+      ApiClient.instance.setToken(token);
     }
-
-    await prefs.remove("token");
-
-    this.token = null;
-
+    _initialised = true;
     notifyListeners();
   }
 
-  Future autoLogin() async {
+  Future<void> login(String email, String password) async {
+    final (tok, usr) = await _service.login(email, password);
+    token = tok;
+    user = usr;
+    ApiClient.instance.setToken(token);
     final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('token', token!);
+    notifyListeners();
+  }
 
-    token = prefs.getString("token");
+  Future<void> register(String name, String email, String password) async {
+    final (tok, usr) = await _service.register(name, email, password);
+    token = tok;
+    user = usr;
+    ApiClient.instance.setToken(token);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('token', token!);
+    notifyListeners();
+  }
 
+  Future<void> logout() async {
+    if (token != null) {
+      try {
+        await _service.logout();
+      } catch (_) {}
+    }
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('token');
+    token = null;
+    user = null;
+    ApiClient.instance.setToken(null);
     notifyListeners();
   }
 }

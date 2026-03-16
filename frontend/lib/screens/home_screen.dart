@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
 import '../providers/auth_provider.dart';
 
 class HomeScreen extends StatelessWidget {
@@ -7,45 +8,40 @@ class HomeScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-
-    final auth = Provider.of<AuthProvider>(context);
+    final auth = context.watch<AuthProvider>();
+    final user = auth.user;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Coach Dashboard"),
+        title: const Text('Home'),
         actions: [
           IconButton(
             icon: const Icon(Icons.logout),
-            onPressed: () {
-              auth.logout();
+            tooltip: 'Logout',
+            onPressed: () async {
+              await context.read<AuthProvider>().logout();
             },
-          )
+          ),
         ],
       ),
-
-      body: GridView.count(
-        crossAxisCount: 2,
-        padding: const EdgeInsets.all(20),
-        children: const [
-
-          Card(
-            child: Center(
-              child: Text("Players"),
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              user != null ? 'Welcome, ${user.name}' : 'Welcome back',
+              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
             ),
-          ),
-
-          Card(
-            child: Center(
-              child: Text("Training"),
-            ),
-          ),
-
-          Card(
-            child: Center(
-              child: Text("Statistics"),
-            ),
-          ),
-        ],
+            const SizedBox(height: 8),
+            if (user?.email != null)
+              Text(
+                user!.email,
+                style: const TextStyle(color: Colors.grey),
+              ),
+            const SizedBox(height: 24),
+            const Text('You are signed in. Use the logout button above to exit.'),
+          ],
+        ),
       ),
     );
   }
