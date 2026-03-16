@@ -1,24 +1,26 @@
-import 'package:flutter/material.dart';
 import 'dart:math';
+import 'package:flutter/material.dart';
 
+import '../core/api_client.dart';
 import '../services/player_service.dart';
 
 class TacticalPitch extends StatefulWidget {
   const TacticalPitch({super.key});
 
   @override
-  State<TacticalPitch> createState() => _TacticalPitchState();
+  State<TacticalPitch> createState() => TacticalPitchState();
 }
 
 class _PlayerData {
+  final int id;
   final String name;
   final String number;
   Offset pos; // normalized 0-1
   
-  _PlayerData(this.name, this.number, this.pos);
+  _PlayerData(this.id, this.name, this.number, this.pos);
 }
 
-class _TacticalPitchState extends State<TacticalPitch> {
+class TacticalPitchState extends State<TacticalPitch> {
   static const double _tokenSize = 56; // approx size of token widget
   static const List<Offset> _starterSlots = [
     Offset(0.08, 0.50), // GK
@@ -34,10 +36,13 @@ class _TacticalPitchState extends State<TacticalPitch> {
     Offset(0.75, 0.80), // RW
   ];
 
+  final ApiClient _api = ApiClient.instance;
   final PlayerService _playerService = PlayerService();
   List<_PlayerData> _players = [];
   bool _loading = true;
   String? _error;
+  int? _teamId;
+  int? _tacticId;
 
   @override
   void initState() {
@@ -49,14 +54,18 @@ class _TacticalPitchState extends State<TacticalPitch> {
     try {
       final starters = await _playerService.fetchPlayers(role: 'starter');
       starters.sort((a, b) => a.number.compareTo(b.number));
+      _teamId = starters.isNotEmpty ? starters.first.teamId : null;
+      _tacticId = await _resolveOrCreateTacticId(_teamId);
+      final savedPositions = _tacticId != null ? await _fetchSavedPositions(_tacticId!) : <int, Offset>{};
 
       final count = min(starters.length, _starterSlots.length);
       _players = List.generate(
         count,
         (i) => _PlayerData(
+          starters[i].id,
           starters[i].name,
           starters[i].number.toString(),
-          _starterSlots[i],
+          savedPositions[starters[i].id] ?? _starterSlots[i],
         ),
       );
 
@@ -71,6 +80,119 @@ class _TacticalPitchState extends State<TacticalPitch> {
           _loading = false;
         });
       }
+    }
+  }
+
+  int _toInt(dynamic value) {
+    if (value is int) return value;
+    if (value is String) return int.tryParse(value) ?? 0;
+    return 0;
+  }
+
+  double _toDouble(dynamic value) {
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    if (value is String) return double.tryParse(value) ?? 0;
+    return 0;
+  }
+
+  List<dynamic> _extractDataList(dynamic response) {
+    if (response is Map<String, dynamic>) {
+      final data = response['data'];
+      if (data is List) return data;
+      return const [];
+    }
+    if (response is List) return response;
+    return const [];
+  }
+
+  Future<int?> _resolveOrCreateTacticId(int? teamId) async {
+    if (teamId == null || teamId <= 0) return null;
+
+    final tacticsRes = await _api.get('/tactics?team_id=$teamId');
+    final tactics = _extractDataList(tacticsRes);
+
+    for (final entry in tactics) {
+      if (entry is! Map<String, dynamic>) continue;
+      final id = _toInt(entry['id']);
+      final entryTeamId = _toInt(entry['team_id']);
+      final isDefault = entry['is_default'] == true || entry['is_default'] == 1;
+      if (id > 0 && entryTeamId == teamId && !isDefault) return id;
+    }
+
+    final createRes = await _api.post('/tactics', {
+      'name': 'Main Lineup',
+      'formation': '4-3-3',
+      'team_id': teamId,
+    });
+
+    if (createRes is Map<String, dynamic>) {
+      final data = createRes['data'];
+      if (data is Map<String, dynamic>) {
+        final createdId = _toInt(data['id']);
+        if (createdId > 0) return createdId;
+      }
+    }
+    return null;
+  }
+
+  Future<Map<int, Offset>> _fetchSavedPositions(int tacticId) async {
+    final res = await _api.get('/tactics/$tacticId/positions');
+    final positions = _extractDataList(res);
+    final map = <int, Offset>{};
+
+    for (final entry in positions) {
+      if (entry is! Map<String, dynamic>) continue;
+      final playerId = _toInt(entry['player_id']);
+      if (playerId <= 0) continue;
+
+      final x = _toDouble(entry['x_position']).clamp(0.0, 1.0).toDouble();
+      final y = _toDouble(entry['y_position']).clamp(0.0, 1.0).toDouble();
+      map[playerId] = Offset(x, y);
+    }
+
+    return map;
+  }
+
+  String _errorMessage(Object error) {
+    if (error is ApiException) {
+      final data = error.data;
+      if (data is Map<String, dynamic>) {
+        final message = data['message'];
+        if (message is String && message.isNotEmpty) return message;
+      }
+      return 'API error ${error.status}';
+    }
+    return error.toString();
+  }
+
+  Future<({bool success, String message})> saveLineup() async {
+    if (_loading) {
+      return (success: false, message: 'Lineup is still loading');
+    }
+    if (_players.isEmpty) {
+      return (success: false, message: 'No starter players to save');
+    }
+
+    try {
+      _tacticId ??= await _resolveOrCreateTacticId(_teamId);
+      final tacticId = _tacticId;
+      if (tacticId == null) {
+        return (success: false, message: 'No team tactic available to save positions');
+      }
+
+      for (final player in _players) {
+        await _api.post('/player-positions', {
+          'player_id': player.id,
+          'tactic_id': tacticId,
+          'x_position': double.parse(player.pos.dx.toStringAsFixed(4)),
+          'y_position': double.parse(player.pos.dy.toStringAsFixed(4)),
+        });
+      }
+
+      return (success: true, message: 'Lineup saved successfully');
+    } catch (e) {
+      return (success: false, message: 'Failed to save lineup: ${_errorMessage(e)}');
     }
   }
 

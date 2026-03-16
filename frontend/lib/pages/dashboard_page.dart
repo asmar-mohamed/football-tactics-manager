@@ -11,12 +11,13 @@ class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
 
   @override
-  State<DashboardPage> createState() => _DashboardPageState();
+  State<DashboardPage> createState() => DashboardPageState();
 }
 
-class _DashboardPageState extends State<DashboardPage> {
+class DashboardPageState extends State<DashboardPage> {
   Future<List<Player>>? _playersFuture;
   late final ScrollController _playerScrollController;
+  final GlobalKey<TacticalPitchState> _tacticalPitchKey = GlobalKey<TacticalPitchState>();
 
   @override
   void initState() {
@@ -28,6 +29,14 @@ class _DashboardPageState extends State<DashboardPage> {
   void dispose() {
     _playerScrollController.dispose();
     super.dispose();
+  }
+
+  Future<({bool success, String message})> saveLineup() async {
+    final tacticalState = _tacticalPitchKey.currentState;
+    if (tacticalState == null) {
+      return (success: false, message: 'Tactical board is not ready');
+    }
+    return tacticalState.saveLineup();
   }
 
   @override
@@ -113,9 +122,12 @@ class _DashboardPageState extends State<DashboardPage> {
           Expanded(
             flex: 65,
             child: _Panel(
-              title: 'Tactical Board',
+              title: '',
+              showTitle: false,
+              backgroundColor: Colors.transparent,
+              contentPadding: EdgeInsets.zero,
               expandChild: true,
-              child: const TacticalPitch(),
+              child: TacticalPitch(key: _tacticalPitchKey),
             ),
           ),
           const SizedBox(width: 12),
@@ -137,6 +149,7 @@ class _Panel extends StatelessWidget {
     required this.title,
     required this.child,
     this.expandChild = false,
+    this.showTitle = true,
     this.backgroundColor = const Color(0xFFF5F5F5),
     this.titleColor = Colors.black87,
     this.borderColor,
@@ -146,6 +159,7 @@ class _Panel extends StatelessWidget {
   final String title;
   final Widget child;
   final bool expandChild;
+  final bool showTitle;
   final Color backgroundColor;
   final Color titleColor;
   final Color? borderColor;
@@ -165,19 +179,21 @@ class _Panel extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Wrapped the Text inside a FittedBox
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.centerLeft,
-              child: Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                ).copyWith(color: titleColor),
+            if (showTitle) ...[
+              // Wrapped the Text inside a FittedBox
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                  ).copyWith(color: titleColor),
+                ),
               ),
-            ),
-            const SizedBox(height: 12),
+              const SizedBox(height: 12),
+            ],
             if (expandChild) Expanded(child: child) else child,
           ],
         ),

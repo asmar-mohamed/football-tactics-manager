@@ -15,6 +15,8 @@ class DashboardShell extends StatefulWidget {
 
 class _DashboardShellState extends State<DashboardShell> {
   int _selectedIndex = 0;
+  bool _savingLineup = false;
+  final GlobalKey<DashboardPageState> _dashboardPageKey = GlobalKey<DashboardPageState>();
 
   final _items = const [
     _NavItem('Dashboard', Icons.dashboard_outlined),
@@ -24,13 +26,42 @@ class _DashboardShellState extends State<DashboardShell> {
     _NavItem('Settings', Icons.settings_outlined),
   ];
 
-  late final List<Widget> _pages = const [
-    DashboardPage(),
-    PlayersPage(),
-    TacticsPage(),
-    TrainingPage(),
-    SettingsPage(),
+  late final List<Widget> _pages = [
+    DashboardPage(key: _dashboardPageKey),
+    const PlayersPage(),
+    const TacticsPage(),
+    const TrainingPage(),
+    const SettingsPage(),
   ];
+
+  Future<void> _onSaveLineupPressed() async {
+    if (_selectedIndex != 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Open Dashboard page to save lineup')),
+      );
+      return;
+    }
+
+    final dashboardState = _dashboardPageKey.currentState;
+    if (dashboardState == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Dashboard is not ready yet')),
+      );
+      return;
+    }
+
+    setState(() => _savingLineup = true);
+    final result = await dashboardState.saveLineup();
+    if (!mounted) return;
+    setState(() => _savingLineup = false);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(result.message),
+        backgroundColor: result.success ? Colors.green.shade600 : Colors.red.shade600,
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -72,7 +103,7 @@ class _DashboardShellState extends State<DashboardShell> {
                 SizedBox(
                   height: 36,
                   child: OutlinedButton(
-                    onPressed: () {},
+                    onPressed: _savingLineup ? null : _onSaveLineupPressed,
                     style: OutlinedButton.styleFrom(
                       foregroundColor: Colors.white,
                       backgroundColor: const Color(0xFF1ED6B0),
@@ -80,10 +111,16 @@ class _DashboardShellState extends State<DashboardShell> {
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                       side: BorderSide.none,
                     ),
-                    child: const Text(
-                      'Save Lineup',
-                      style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
-                    ),
+                    child: _savingLineup
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
+                        : const Text(
+                            'Save Lineup',
+                            style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+                          ),
                   ),
                 ),
               ],
