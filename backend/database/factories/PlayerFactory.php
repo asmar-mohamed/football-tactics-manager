@@ -32,6 +32,7 @@ class PlayerFactory extends Factory
             'name' => fake()->name(),
             'number' => fake()->unique()->numberBetween(1, 99),
             'position' => $code,
+            'role' => fake()->randomElement(['starter', 'substitute']),
             'team_id' => Team::factory(),
             'category_id' => Category::factory()->state([
                 'name' => $positions[$code],

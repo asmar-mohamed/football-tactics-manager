@@ -16,6 +16,7 @@ return new class extends Migration
             $table->string('name');
             $table->integer('number');
             $table->string('position');
+            $table->enum('role', ['starter', 'substitute']);
             $table->foreignId('category_id')->nullable()->constrained('categories')->nullOnDelete();
             $table->foreignId('team_id')->constrained()->onDelete('cascade');
             $table->timestamps();
