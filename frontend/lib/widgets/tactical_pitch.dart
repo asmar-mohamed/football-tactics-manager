@@ -3,15 +3,19 @@ import 'package:flutter/material.dart';
 
 import '../core/api_client.dart';
 import '../models/player.dart';
+import '../models/tactic.dart';
 import '../services/player_service.dart';
+import '../services/tactic_service.dart';
 
 class TacticalPitch extends StatefulWidget {
   const TacticalPitch({
     super.key,
     this.onLineupChanged,
+    this.onTacticsLoaded,
   });
 
   final VoidCallback? onLineupChanged;
+  final void Function(List<Tactic>, Tactic)? onTacticsLoaded;
 
   @override
   State<TacticalPitch> createState() => TacticalPitchState();
@@ -43,8 +47,58 @@ class TacticalPitchState extends State<TacticalPitch> {
     Offset(0.75, 0.80), // RW
   ];
 
+  List<Offset> _getFormationSlots(String formation) {
+    List<Offset> slots = [const Offset(0.08, 0.50)]; // GK
+
+    List<int> lines = formation.split('-').map((e) => int.tryParse(e) ?? 0).toList();
+    if (lines.isEmpty || lines.any((l) => l <= 0) || lines.fold(0, (a, b) => a + b) != 10) {
+      return _starterSlots;
+    }
+
+    List<double> xBands;
+    if (lines.length == 3) {
+      xBands = [0.25, 0.50, 0.75];
+    } else if (lines.length == 4) {
+      xBands = [0.25, 0.45, 0.65, 0.80];
+    } else {
+      xBands = List.generate(lines.length, (i) => 0.25 + (i * 0.55 / (lines.length - 1)));
+    }
+
+    for (int i = 0; i < lines.length; i++) {
+      int count = lines[i];
+      double x = xBands[i];
+      if (count == 1) {
+        slots.add(Offset(x, 0.50));
+      } else {
+        // IMPROVED: Use dynamic spacing based on count. 
+        // Small counts (e.g. 2 players) should be more centered.
+        double verticalSpan = count <= 2 ? 0.35 : 0.70;
+        double yStart = 0.50 - (verticalSpan / 2);
+        double yStep = verticalSpan / (count - 1);
+
+        for (int j = 0; j < count; j++) {
+          double y = yStart + (j * yStep);
+          double dx = x;
+          if (i == 0 && (j == 0 || j == count - 1) && count >= 4) {
+            dx += 0.03; // push fullbacks slightly forward
+          }
+          if (i == 0 && count >= 4 && j > 0 && j < count - 1) {
+            dx -= 0.03; // central defenders slightly back
+          }
+          slots.add(Offset(dx, y));
+        }
+      }
+    }
+
+    while (slots.length < 11) {
+      slots.add(const Offset(0.5, 0.5));
+    }
+    return slots;
+  }
+
   final ApiClient _api = ApiClient.instance;
   final PlayerService _playerService = PlayerService();
+  final _tacticService = TacticService();
   List<_PlayerData> _players = [];
   bool _loading = true;
   String? _error;
@@ -62,10 +116,35 @@ class TacticalPitchState extends State<TacticalPitch> {
       final starters = await _playerService.fetchPlayers(role: 'starter');
       starters.sort((a, b) => a.number.compareTo(b.number));
       _teamId = starters.isNotEmpty ? starters.first.teamId : null;
-      _tacticId = await _resolveOrCreateTacticId(_teamId);
-      final savedPositions = _tacticId != null ? await _fetchSavedPositions(_tacticId!) : <int, Offset>{};
+      
+      Tactic? activeTactic;
+      List<Tactic> allTactics = [];
 
+      if (_teamId != null) {
+        allTactics = await _tacticService.fetchTactics(teamId: _teamId);
+        
+        for (var t in allTactics) {
+          if (!t.isDefault && t.teamId == _teamId) {
+             activeTactic = t;
+             break;
+          }
+        }
+        
+        if (activeTactic == null) {
+          activeTactic = await _tacticService.createTactic('Main Lineup', '4-3-3', _teamId!);
+          allTactics.add(activeTactic);
+        }
+        _tacticId = activeTactic.id;
+      }
+
+      if (mounted && allTactics.isNotEmpty && activeTactic != null) {
+        widget.onTacticsLoaded?.call(allTactics, activeTactic);
+      }
+
+      final savedPositions = _tacticId != null ? await _fetchSavedPositions(_tacticId!) : <int, Offset>{};
+  
       final count = min(starters.length, _starterSlots.length);
+      final defaultSlots = activeTactic != null ? _getFormationSlots(activeTactic.formation) : _starterSlots;
       _players = List.generate(
         count,
         (i) => _PlayerData(
@@ -73,7 +152,7 @@ class TacticalPitchState extends State<TacticalPitch> {
           starters[i].name,
           starters[i].number.toString(),
           _categoryBadgeText(starters[i].categoryName),
-          savedPositions[starters[i].id] ?? _starterSlots[i],
+          savedPositions[starters[i].id] ?? defaultSlots[i],
         ),
       );
 
@@ -88,6 +167,36 @@ class TacticalPitchState extends State<TacticalPitch> {
           _loading = false;
         });
       }
+    }
+  }
+
+  Future<void> changeTactic(Tactic newTactic) async {
+    setState(() {
+      _tacticId = newTactic.id;
+      _loading = true;
+      _error = null;
+    });
+
+    try {
+      final savedPositions = await _fetchSavedPositions(_tacticId!);
+      final slots = _getFormationSlots(newTactic.formation);
+
+      setState(() {
+        for (var i = 0; i < _players.length; i++) {
+          final p = _players[i];
+          if (savedPositions.containsKey(p.id)) {
+            p.pos = savedPositions[p.id]!;
+          } else {
+            if (i < slots.length) p.pos = slots[i];
+          }
+        }
+        _loading = false;
+      });
+    } catch (_) {
+      setState(() {
+        _error = 'Failed to load tactic positions';
+        _loading = false;
+      });
     }
   }
 
@@ -112,36 +221,6 @@ class TacticalPitchState extends State<TacticalPitch> {
     }
     if (response is List) return response;
     return const [];
-  }
-
-  Future<int?> _resolveOrCreateTacticId(int? teamId) async {
-    if (teamId == null || teamId <= 0) return null;
-
-    final tacticsRes = await _api.get('/tactics?team_id=$teamId');
-    final tactics = _extractDataList(tacticsRes);
-
-    for (final entry in tactics) {
-      if (entry is! Map<String, dynamic>) continue;
-      final id = _toInt(entry['id']);
-      final entryTeamId = _toInt(entry['team_id']);
-      final isDefault = entry['is_default'] == true || entry['is_default'] == 1;
-      if (id > 0 && entryTeamId == teamId && !isDefault) return id;
-    }
-
-    final createRes = await _api.post('/tactics', {
-      'name': 'Main Lineup',
-      'formation': '4-3-3',
-      'team_id': teamId,
-    });
-
-    if (createRes is Map<String, dynamic>) {
-      final data = createRes['data'];
-      if (data is Map<String, dynamic>) {
-        final createdId = _toInt(data['id']);
-        if (createdId > 0) return createdId;
-      }
-    }
-    return null;
   }
 
   Future<Map<int, Offset>> _fetchSavedPositions(int tacticId) async {
@@ -198,7 +277,6 @@ class TacticalPitchState extends State<TacticalPitch> {
     }
 
     try {
-      _tacticId ??= await _resolveOrCreateTacticId(_teamId);
       final tacticId = _tacticId;
       if (tacticId == null) {
         return (success: false, message: 'No team tactic available to save positions');
