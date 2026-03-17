@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../models/player.dart';
+
 class PlayerListEntry {
   final String name;
   final int number;
@@ -14,14 +16,10 @@ class PlayerListEntry {
 class PlayerListItem extends StatelessWidget {
   const PlayerListItem({
     super.key,
-    required this.name,
-    required this.number,
-    required this.category,
+    required this.player,
   });
 
-  final String name;
-  final int number;
-  final String? category;
+  final Player player;
 
   String _formatDisplayName(String fullName) {
     final parts = fullName
@@ -29,11 +27,11 @@ class PlayerListItem extends StatelessWidget {
         .split(RegExp(r'\s+'))
         .where((p) => p.isNotEmpty)
         .toList();
-    if (parts.isEmpty) return 'UNKNOWN ($number)';
-    if (parts.length == 1) return '${parts.first.toUpperCase()} ($number)';
+    if (parts.isEmpty) return 'UNKNOWN (${player.number})';
+    if (parts.length == 1) return '${parts.first.toUpperCase()} (${player.number})';
     final initial = parts.first[0].toUpperCase();
     final last = parts.last.toUpperCase();
-    return '$initial. $last ($number)';
+    return '$initial. $last (${player.number})';
   }
 
   String _initialsFromName(String fullName) {
@@ -67,9 +65,9 @@ class PlayerListItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final initials = _initialsFromName(name);
-    final label = _formatDisplayName(name);
-    final categoryText = _categoryBadgeText(category);
+    final initials = _initialsFromName(player.name);
+    final label = _formatDisplayName(player.name);
+    final categoryText = _categoryBadgeText(player.categoryName);
 
     return SizedBox(
       height: 86,

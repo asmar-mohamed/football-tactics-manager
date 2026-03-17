@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 
-import '../pages/dashboard_page.dart';
-import '../pages/players_page.dart';
-import '../pages/settings_page.dart';
-import '../pages/tactics_page.dart';
-import '../pages/training_page.dart';
+import 'package:frontend/pages/dashboard_page.dart';
+import 'package:frontend/pages/players_page.dart';
+import 'package:frontend/pages/settings_page.dart';
+import 'package:frontend/pages/tactics_page.dart';
+import 'package:frontend/pages/training_page.dart';
 
 class DashboardShell extends StatefulWidget {
   const DashboardShell({super.key});
@@ -28,7 +28,7 @@ class _DashboardShellState extends State<DashboardShell> {
 
   late final List<Widget> _pages = [
     DashboardPage(key: _dashboardPageKey),
-    const PlayersPage(),
+    PlayersPage(),
     const TacticsPage(),
     const TrainingPage(),
     const SettingsPage(),

@@ -2,10 +2,16 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 
 import '../core/api_client.dart';
+import '../models/player.dart';
 import '../services/player_service.dart';
 
 class TacticalPitch extends StatefulWidget {
-  const TacticalPitch({super.key});
+  const TacticalPitch({
+    super.key,
+    this.onLineupChanged,
+  });
+
+  final VoidCallback? onLineupChanged;
 
   @override
   State<TacticalPitch> createState() => TacticalPitchState();
@@ -15,9 +21,10 @@ class _PlayerData {
   final int id;
   final String name;
   final String number;
+  final String category;
   Offset pos; // normalized 0-1
   
-  _PlayerData(this.id, this.name, this.number, this.pos);
+  _PlayerData(this.id, this.name, this.number, this.category, this.pos);
 }
 
 class TacticalPitchState extends State<TacticalPitch> {
@@ -65,6 +72,7 @@ class TacticalPitchState extends State<TacticalPitch> {
           starters[i].id,
           starters[i].name,
           starters[i].number.toString(),
+          _categoryBadgeText(starters[i].categoryName),
           savedPositions[starters[i].id] ?? _starterSlots[i],
         ),
       );
@@ -166,6 +174,21 @@ class TacticalPitchState extends State<TacticalPitch> {
     return error.toString();
   }
 
+  String _categoryBadgeText(String? value) {
+    switch (value?.toLowerCase().trim()) {
+      case 'goalkeeper':
+        return 'GK';
+      case 'defender':
+        return 'DF';
+      case 'midfielder':
+        return 'MF';
+      case 'forward':
+        return 'FW';
+      default:
+        return '--';
+    }
+  }
+
   Future<({bool success, String message})> saveLineup() async {
     if (_loading) {
       return (success: false, message: 'Lineup is still loading');
@@ -196,6 +219,66 @@ class TacticalPitchState extends State<TacticalPitch> {
     }
   }
 
+  int _nearestStarterIndex(Offset localPoint, BoxConstraints constraints) {
+    if (_players.isEmpty) return -1;
+
+    var minDistance = double.infinity;
+    var minIndex = 0;
+    for (var i = 0; i < _players.length; i++) {
+      final center = Offset(
+        _players[i].pos.dx * constraints.maxWidth,
+        _players[i].pos.dy * constraints.maxHeight,
+      );
+      final d = (center - localPoint).distanceSquared;
+      if (d < minDistance) {
+        minDistance = d;
+        minIndex = i;
+      }
+    }
+    return minIndex;
+  }
+
+  Future<void> _handleDroppedBankPlayer(
+    Player droppedPlayer,
+    Offset localPoint,
+    BoxConstraints constraints,
+  ) async {
+    final targetIndex = _nearestStarterIndex(localPoint, constraints);
+    if (targetIndex < 0 || targetIndex >= _players.length) return;
+
+    final replaced = _players[targetIndex];
+    if (replaced.id == droppedPlayer.id) return;
+
+    final replacement = _PlayerData(
+      droppedPlayer.id,
+      droppedPlayer.name,
+      droppedPlayer.number.toString(),
+      _categoryBadgeText(droppedPlayer.categoryName),
+      replaced.pos,
+    );
+
+    setState(() {
+      _players[targetIndex] = replacement;
+    });
+
+    try {
+      await _playerService.updatePlayerRole(droppedPlayer.id, 'starter');
+      await _playerService.updatePlayerRole(replaced.id, 'substitute');
+      widget.onLineupChanged?.call();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _players[targetIndex] = replaced;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to assign player: ${_errorMessage(e)}'),
+          backgroundColor: Colors.red.shade600,
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return SizedBox.expand(
@@ -203,46 +286,65 @@ class TacticalPitchState extends State<TacticalPitch> {
         borderRadius: BorderRadius.circular(12),
         child: LayoutBuilder(
           builder: (context, constraints) {
-            return Stack(
-              fit: StackFit.expand,
-              children: [
-                CustomPaint(painter: _PitchPainter()),
-                if (_loading)
-                  const Center(child: CircularProgressIndicator()),
-                if (!_loading && _error != null && _players.isEmpty)
-                  Center(
-                    child: Text(
-                      _error!,
-                      style: TextStyle(color: Colors.red.shade700, fontWeight: FontWeight.w600),
-                    ),
-                  ),
-                for (var i = 0; i < _players.length; i++)
-                  Positioned(
-                    left: _players[i].pos.dx * constraints.maxWidth - (_tokenSize / 2),
-                    top: _players[i].pos.dy * constraints.maxHeight - (_tokenSize / 2),
-                    child: GestureDetector(
-                      onPanUpdate: (details) {
-                        setState(() {
-                          final w = constraints.maxWidth;
-                          final h = constraints.maxHeight;
-                          final dxClamp = (_tokenSize / 2) / w;
-                          final dyClamp = (_tokenSize / 2) / h;
-                          final newX = _players[i].pos.dx + (details.delta.dx / w);
-                          final newY = _players[i].pos.dy + (details.delta.dy / h);
-                          _players[i].pos = Offset(
-                            newX.clamp(dxClamp, 1 - dxClamp),
-                            newY.clamp(dyClamp, 1 - dyClamp),
-                          );
-                        });
-                      },
-                      child: _PlayerToken(
-                        name: _players[i].name,
-                        number: _players[i].number,
-                        elevated: true,
+            return DragTarget<Player>(
+              onWillAcceptWithDetails: (details) => true,
+              onAcceptWithDetails: (details) async {
+                final box = context.findRenderObject();
+                if (box is! RenderBox) return;
+                final localPoint = box.globalToLocal(details.offset);
+                await _handleDroppedBankPlayer(details.data, localPoint, constraints);
+              },
+              builder: (context, candidateData, rejectedData) {
+                return Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    CustomPaint(painter: _PitchPainter()),
+                    if (candidateData.isNotEmpty)
+                      Container(
+                        decoration: BoxDecoration(
+                          border: Border.all(color: const Color(0xAA37C8DF), width: 2),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                       ),
-                    ),
-                  ),
-              ],
+                    if (_loading)
+                      const Center(child: CircularProgressIndicator()),
+                    if (!_loading && _error != null && _players.isEmpty)
+                      Center(
+                        child: Text(
+                          _error!,
+                          style: TextStyle(color: Colors.red.shade700, fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    for (var i = 0; i < _players.length; i++)
+                      Positioned(
+                        left: _players[i].pos.dx * constraints.maxWidth - (_tokenSize / 2),
+                        top: _players[i].pos.dy * constraints.maxHeight - (_tokenSize / 2),
+                        child: GestureDetector(
+                          onPanUpdate: (details) {
+                            setState(() {
+                              final w = constraints.maxWidth;
+                              final h = constraints.maxHeight;
+                              final dxClamp = (_tokenSize / 2) / w;
+                              final dyClamp = (_tokenSize / 2) / h;
+                              final newX = _players[i].pos.dx + (details.delta.dx / w);
+                              final newY = _players[i].pos.dy + (details.delta.dy / h);
+                              _players[i].pos = Offset(
+                                newX.clamp(dxClamp, 1 - dxClamp),
+                                newY.clamp(dyClamp, 1 - dyClamp),
+                              );
+                            });
+                          },
+                          child: _PlayerToken(
+                            name: _players[i].name,
+                            number: _players[i].number,
+                            category: _players[i].category,
+                            elevated: true,
+                          ),
+                        ),
+                      ),
+                  ],
+                );
+              },
             );
           },
         ),
@@ -255,11 +357,13 @@ class _PlayerToken extends StatelessWidget {
   const _PlayerToken({
     required this.name, 
     required this.number, 
+    required this.category,
     this.elevated = false,
   });
 
   final String name;
   final String number;
+  final String category;
   final bool elevated;
 
   String _initialsFromName(String fullName) {
@@ -330,7 +434,7 @@ class _PlayerToken extends StatelessWidget {
                 child: FittedBox(
                   fit: BoxFit.scaleDown,
                   child: Text(
-                    number,
+                    category,
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 9,
@@ -359,7 +463,7 @@ class _PlayerToken extends StatelessWidget {
                 : null,
           ),
           child: Text(
-            name,
+            '$name ($number)',
             style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w600),
           ),
         ),

@@ -7,6 +7,7 @@ class Player {
   final int teamId;
   final int? categoryId;
   final String? categoryName;
+  final DateTime? createdAt;
 
   Player({
     required this.id,
@@ -17,6 +18,7 @@ class Player {
     required this.teamId,
     this.categoryId,
     this.categoryName,
+    this.createdAt,
   });
 
   factory Player.fromMap(Map<String, dynamic> map) {
@@ -37,6 +39,7 @@ class Player {
       categoryName: map['category'] is Map<String, dynamic>
           ? (map['category']['name'] as String?)
           : map['category_name'] as String?,
+      createdAt: map['created_at'] is String ? DateTime.tryParse(map['created_at'] as String) : null,
     );
   }
 }

@@ -17,8 +17,9 @@ class StorePlayerRequest extends FormRequest
             'name' => 'required|string|max:255',
             'number' => 'required|integer',
             'position' => 'required|string|max:100',
+            'role' => 'required|in:starter,substitute',
             'team_id' => 'required|exists:teams,id',
-            'category_id' => 'required|exists:categories,id',
+            'category_id' => 'nullable|exists:categories,id',
         ];
     }
 }

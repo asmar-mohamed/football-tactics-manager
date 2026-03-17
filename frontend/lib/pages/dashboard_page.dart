@@ -39,6 +39,12 @@ class DashboardPageState extends State<DashboardPage> {
     return tacticalState.saveLineup();
   }
 
+  void refreshPlayerBank() {
+    setState(() {
+      _playersFuture = PlayerService().fetchPlayers(role: 'substitute');
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final isAuth = context.watch<AuthProvider>().isAuth;
@@ -101,10 +107,22 @@ class DashboardPageState extends State<DashboardPage> {
                               separatorBuilder: (context, _) => const SizedBox(height: 8),
                               itemBuilder: (context, index) {
                                 final p = players[index];
-                                return PlayerListItem(
-                                  name: p.name,
-                                  number: p.number,
-                                  category: p.categoryName,
+                                return Draggable<Player>(
+                                  data: p,
+                                  feedback: Material(
+                                    color: Colors.transparent,
+                                    child: SizedBox(
+                                      width: 130,
+                                      child: PlayerListItem(player: p),
+                                    ),
+                                  ),
+                                  childWhenDragging: Opacity(
+                                    opacity: 0.35,
+                                    child: PlayerListItem(player: p),
+                                  ),
+                                  child: PlayerListItem(
+                                    player: p,
+                                  ),
                                 );
                               },
                             ),
@@ -127,7 +145,10 @@ class DashboardPageState extends State<DashboardPage> {
               backgroundColor: Colors.transparent,
               contentPadding: EdgeInsets.zero,
               expandChild: true,
-              child: TacticalPitch(key: _tacticalPitchKey),
+              child: TacticalPitch(
+                key: _tacticalPitchKey,
+                onLineupChanged: refreshPlayerBank,
+              ),
             ),
           ),
           const SizedBox(width: 12),
