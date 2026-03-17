@@ -4,16 +4,7 @@ import '../core/api_client.dart';
 import '../models/player.dart';
 import '../services/player_service.dart';
 
-enum _SortField {
-  id,
-  name,
-  number,
-  position,
-  role,
-  category,
-  team,
-  created,
-}
+enum _SortField { name, number, position, role, created }
 
 class PlayersPage extends StatefulWidget {
   const PlayersPage({super.key});
@@ -30,16 +21,37 @@ class _PlayersPageState extends State<PlayersPage> {
   final TextEditingController _numberController = TextEditingController();
   final TextEditingController _searchController = TextEditingController();
 
-  final List<String> _positions = const ['GK', 'CB', 'LB', 'RB', 'DM', 'CM', 'AM', 'LW', 'RW', 'ST'];
+  final List<String> _positions = const [
+    'GK',
+    'CB',
+    'LB',
+    'RB',
+    'DM',
+    'CM',
+    'AM',
+    'LW',
+    'RW',
+    'ST',
+  ];
   final List<String> _roles = const ['starter', 'substitute'];
+  static const Map<String, String> _positionCategoryMap = {
+    'GK': 'Goalkeeper',
+    'CB': 'Defender',
+    'LB': 'Defender',
+    'RB': 'Defender',
+    'DM': 'Midfielder',
+    'CM': 'Midfielder',
+    'AM': 'Midfielder',
+    'LW': 'Forward',
+    'RW': 'Forward',
+    'ST': 'Forward',
+  };
 
   List<Player> _players = [];
   List<({int id, String name})> _teams = [];
   List<({int id, String name})> _categories = [];
 
   String? _selectedPosition;
-  String _selectedRole = 'substitute';
-  int? _selectedCategoryId;
   int? _selectedTeamId;
 
   String _search = '';
@@ -53,7 +65,7 @@ class _PlayersPageState extends State<PlayersPage> {
   bool _saving = false;
   String? _error;
 
-  _SortField _sortField = _SortField.id;
+  _SortField _sortField = _SortField.name;
   int _sortColumnIndex = 0;
   bool _sortAscending = true;
   int _rowsPerPage = 5;
@@ -100,7 +112,6 @@ class _PlayersPageState extends State<PlayersPage> {
         _teams = teams;
         _categories = categories;
         _selectedPosition ??= _positions.first;
-        _selectedCategoryId ??= null;
         _selectedTeamId ??= _teams.isNotEmpty ? _teams.first.id : null;
         _loading = false;
       });
@@ -164,6 +175,58 @@ class _PlayersPageState extends State<PlayersPage> {
     return '$y-$m-$d';
   }
 
+  String _tableTeamTitle() {
+    final teamId = _filterTeamId ?? _selectedTeamId;
+    if (teamId != null) return _teamName(teamId);
+    if (_teams.isNotEmpty) return _teams.first.name;
+    return 'Team';
+  }
+
+  String _categoryNameForPosition(String? position) {
+    if (position == null) return '-';
+    return _positionCategoryMap[position] ?? '-';
+  }
+
+  int? _categoryIdByName(String categoryName) {
+    for (final c in _categories) {
+      if (c.name.toLowerCase() == categoryName.toLowerCase()) return c.id;
+    }
+
+    switch (categoryName) {
+      case 'Goalkeeper':
+        return 1;
+      case 'Defender':
+        return 2;
+      case 'Midfielder':
+        return 3;
+      case 'Forward':
+        return 4;
+      default:
+        return null;
+    }
+  }
+
+  int? _autoCategoryIdForPosition(String? position) {
+    final categoryName = _categoryNameForPosition(position);
+    if (categoryName == '-') return null;
+    return _categoryIdByName(categoryName);
+  }
+
+  bool _isJerseyNumberTaken(int number, int teamId, {int? excludingPlayerId}) {
+    return _players.any(
+      (p) =>
+          p.number == number && p.teamId == teamId && p.id != excludingPlayerId,
+    );
+  }
+
+  String _roleForSubmit() {
+    if (_editingPlayerId == null) return 'substitute';
+    for (final p in _players) {
+      if (p.id == _editingPlayerId) return p.role;
+    }
+    return 'substitute';
+  }
+
   Future<void> _submitForm() async {
     if (!_formKey.currentState!.validate()) return;
     if (_selectedPosition == null || _selectedTeamId == null) {
@@ -175,21 +238,35 @@ class _PlayersPageState extends State<PlayersPage> {
 
     final number = int.tryParse(_numberController.text.trim());
     if (number == null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Jersey number is invalid')));
+      return;
+    }
+    if (_isJerseyNumberTaken(
+      number,
+      _selectedTeamId!,
+      excludingPlayerId: _editingPlayerId,
+    )) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Jersey number is invalid')),
+        const SnackBar(
+          content: Text('Jersey number must be unique in the selected team'),
+        ),
       );
       return;
     }
 
     setState(() => _saving = true);
     try {
+      final categoryId = _autoCategoryIdForPosition(_selectedPosition);
+      final role = _roleForSubmit();
       if (_editingPlayerId == null) {
         await _playerService.createPlayer(
           name: _nameController.text.trim(),
           number: number,
           position: _selectedPosition!,
-          role: _selectedRole,
-          categoryId: _selectedCategoryId,
+          role: role,
+          categoryId: categoryId,
           teamId: _selectedTeamId!,
         );
       } else {
@@ -198,8 +275,8 @@ class _PlayersPageState extends State<PlayersPage> {
           name: _nameController.text.trim(),
           number: number,
           position: _selectedPosition!,
-          role: _selectedRole,
-          categoryId: _selectedCategoryId,
+          role: role,
+          categoryId: categoryId,
           teamId: _selectedTeamId!,
         );
       }
@@ -209,7 +286,9 @@ class _PlayersPageState extends State<PlayersPage> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(_editingPlayerId == null ? 'Player added' : 'Player updated'),
+          content: Text(
+            _editingPlayerId == null ? 'Player added' : 'Player updated',
+          ),
           backgroundColor: Colors.green.shade600,
         ),
       );
@@ -232,23 +311,27 @@ class _PlayersPageState extends State<PlayersPage> {
       _nameController.text = p.name;
       _numberController.text = p.number.toString();
       _selectedPosition = p.position;
-      _selectedRole = p.role;
-      _selectedCategoryId = p.categoryId;
       _selectedTeamId = p.teamId;
     });
   }
 
   Future<void> _deletePlayer(Player p) async {
-    final confirm = await showDialog<bool>(
+    final confirm =
+        await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
             title: const Text('Delete player'),
             content: Text('Delete ${p.name}?'),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel'),
+              ),
               ElevatedButton(
                 onPressed: () => Navigator.pop(context, true),
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.red.shade600),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red.shade600,
+                ),
                 child: const Text('Delete'),
               ),
             ],
@@ -284,8 +367,6 @@ class _PlayersPageState extends State<PlayersPage> {
       _nameController.clear();
       _numberController.clear();
       _selectedPosition = _positions.first;
-      _selectedRole = 'substitute';
-      _selectedCategoryId = null;
       _selectedTeamId = _teams.isNotEmpty ? _teams.first.id : null;
     });
   }
@@ -293,18 +374,22 @@ class _PlayersPageState extends State<PlayersPage> {
   List<Player> get _visiblePlayers {
     final query = _search.trim().toLowerCase();
     final filtered = _players.where((p) {
-      if (query.isNotEmpty && !p.name.toLowerCase().contains(query)) return false;
-      if (_filterPosition != null && p.position != _filterPosition) return false;
+      if (query.isNotEmpty && !p.name.toLowerCase().contains(query)) {
+        return false;
+      }
+      if (_filterPosition != null && p.position != _filterPosition) {
+        return false;
+      }
       if (_filterRole != null && p.role != _filterRole) return false;
-      if (_filterCategoryId != null && p.categoryId != _filterCategoryId) return false;
+      if (_filterCategoryId != null && p.categoryId != _filterCategoryId) {
+        return false;
+      }
       if (_filterTeamId != null && p.teamId != _filterTeamId) return false;
       return true;
     }).toList();
 
     int compare(Player a, Player b) {
       switch (_sortField) {
-        case _SortField.id:
-          return a.id.compareTo(b.id);
         case _SortField.name:
           return a.name.toLowerCase().compareTo(b.name.toLowerCase());
         case _SortField.number:
@@ -313,10 +398,6 @@ class _PlayersPageState extends State<PlayersPage> {
           return a.position.compareTo(b.position);
         case _SortField.role:
           return a.role.compareTo(b.role);
-        case _SortField.category:
-          return (a.categoryName ?? '').compareTo(b.categoryName ?? '');
-        case _SortField.team:
-          return _teamName(a.teamId).compareTo(_teamName(b.teamId));
         case _SortField.created:
           final ad = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
           final bd = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
@@ -400,7 +481,10 @@ class _PlayersPageState extends State<PlayersPage> {
                   const SizedBox(width: 8),
                   Text(
                     _editingPlayerId == null ? 'Add Player' : 'Edit Player',
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                 ],
               ),
@@ -411,7 +495,9 @@ class _PlayersPageState extends State<PlayersPage> {
                   labelText: 'Player Name',
                   hintText: 'e.g. Jude Bellingham',
                 ),
-                validator: (v) => (v == null || v.trim().isEmpty) ? 'Player name is required' : null,
+                validator: (v) => (v == null || v.trim().isEmpty)
+                    ? 'Player name is required'
+                    : null,
               ),
               const SizedBox(height: 10),
               TextFormField(
@@ -421,42 +507,58 @@ class _PlayersPageState extends State<PlayersPage> {
                   hintText: 'e.g. 10',
                 ),
                 keyboardType: TextInputType.number,
-                validator: (v) => (v == null || int.tryParse(v) == null) ? 'Valid number required' : null,
+                validator: (v) {
+                  final number = int.tryParse(v?.trim() ?? '');
+                  if (number == null) return 'Valid number required';
+                  final teamId = _selectedTeamId;
+                  if (teamId == null) return 'Team is required';
+                  if (_isJerseyNumberTaken(
+                    number,
+                    teamId,
+                    excludingPlayerId: _editingPlayerId,
+                  )) {
+                    return 'Jersey number already used in this team';
+                  }
+                  return null;
+                },
               ),
               const SizedBox(height: 10),
               DropdownButtonFormField<String>(
                 initialValue: _selectedPosition,
                 decoration: const InputDecoration(labelText: 'Position'),
-                items: _positions.map((p) => DropdownMenuItem(value: p, child: Text(p))).toList(),
-                onChanged: (v) => setState(() => _selectedPosition = v),
+                items: _positions
+                    .map((p) => DropdownMenuItem(value: p, child: Text(p)))
+                    .toList(),
+                onChanged: (v) {
+                  setState(() {
+                    _selectedPosition = v;
+                  });
+                },
                 validator: (v) => v == null ? 'Position is required' : null,
               ),
               const SizedBox(height: 10),
-              DropdownButtonFormField<String>(
-                initialValue: _selectedRole,
-                decoration: const InputDecoration(labelText: 'Role'),
-                items: _roles.map((r) => DropdownMenuItem(value: r, child: Text(r))).toList(),
-                onChanged: (v) => setState(() => _selectedRole = v ?? 'substitute'),
-              ),
-              const SizedBox(height: 10),
-              DropdownButtonFormField<int?>(
-                initialValue: _selectedCategoryId,
+              InputDecorator(
                 decoration: const InputDecoration(
-                  labelText: 'Category (Optional)',
-                  hintText: 'Select category',
+                  labelText: 'Category (Auto from Position)',
                 ),
-                items: [
-                  const DropdownMenuItem<int?>(value: null, child: Text('Optional')),
-                  ..._categories.map((c) => DropdownMenuItem<int?>(value: c.id, child: Text(c.name))),
-                ],
-                onChanged: (v) => setState(() => _selectedCategoryId = v),
+                child: Text(
+                  _categoryNameForPosition(_selectedPosition),
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
               ),
               const SizedBox(height: 10),
               DropdownButtonFormField<int>(
                 initialValue: _selectedTeamId,
                 decoration: const InputDecoration(labelText: 'Team'),
-                items: _teams.map((t) => DropdownMenuItem(value: t.id, child: Text(t.name))).toList(),
-                onChanged: (v) => setState(() => _selectedTeamId = v),
+                items: _teams
+                    .map(
+                      (t) => DropdownMenuItem(value: t.id, child: Text(t.name)),
+                    )
+                    .toList(),
+                onChanged: (v) {
+                  setState(() => _selectedTeamId = v);
+                  _formKey.currentState?.validate();
+                },
                 validator: (v) => v == null ? 'Team is required' : null,
               ),
               const SizedBox(height: 14),
@@ -466,9 +568,13 @@ class _PlayersPageState extends State<PlayersPage> {
                     child: ElevatedButton.icon(
                       onPressed: _saving ? null : _submitForm,
                       icon: const Icon(Icons.add_circle_outline),
-                      label: Text(_saving
-                          ? 'Saving...'
-                          : (_editingPlayerId == null ? 'Add Player' : 'Update Player')),
+                      label: Text(
+                        _saving
+                            ? 'Saving...'
+                            : (_editingPlayerId == null
+                                  ? 'Add Player'
+                                  : 'Update Player'),
+                      ),
                     ),
                   ),
                 ],
@@ -525,8 +631,13 @@ class _PlayersPageState extends State<PlayersPage> {
                   prefixIcon: Icon(Icons.filter_alt_outlined),
                 ),
                 items: [
-                  const DropdownMenuItem<String?>(value: null, child: Text('All')),
-                  ..._positions.map((p) => DropdownMenuItem<String?>(value: p, child: Text(p))),
+                  const DropdownMenuItem<String?>(
+                    value: null,
+                    child: Text('All'),
+                  ),
+                  ..._positions.map(
+                    (p) => DropdownMenuItem<String?>(value: p, child: Text(p)),
+                  ),
                 ],
                 onChanged: (v) => _setFilterState(() => _filterPosition = v),
               ),
@@ -537,8 +648,13 @@ class _PlayersPageState extends State<PlayersPage> {
                 initialValue: _filterRole,
                 decoration: const InputDecoration(labelText: 'Role'),
                 items: [
-                  const DropdownMenuItem<String?>(value: null, child: Text('All')),
-                  ..._roles.map((r) => DropdownMenuItem<String?>(value: r, child: Text(r))),
+                  const DropdownMenuItem<String?>(
+                    value: null,
+                    child: Text('All'),
+                  ),
+                  ..._roles.map(
+                    (r) => DropdownMenuItem<String?>(value: r, child: Text(r)),
+                  ),
                 ],
                 onChanged: (v) => _setFilterState(() => _filterRole = v),
               ),
@@ -550,7 +666,12 @@ class _PlayersPageState extends State<PlayersPage> {
                 decoration: const InputDecoration(labelText: 'Category'),
                 items: [
                   const DropdownMenuItem<int?>(value: null, child: Text('All')),
-                  ..._categories.map((c) => DropdownMenuItem<int?>(value: c.id, child: Text(c.name))),
+                  ..._categories.map(
+                    (c) => DropdownMenuItem<int?>(
+                      value: c.id,
+                      child: Text(c.name),
+                    ),
+                  ),
                 ],
                 onChanged: (v) => _setFilterState(() => _filterCategoryId = v),
               ),
@@ -562,7 +683,12 @@ class _PlayersPageState extends State<PlayersPage> {
                 decoration: const InputDecoration(labelText: 'Team'),
                 items: [
                   const DropdownMenuItem<int?>(value: null, child: Text('All')),
-                  ..._teams.map((t) => DropdownMenuItem<int?>(value: t.id, child: Text(t.name))),
+                  ..._teams.map(
+                    (t) => DropdownMenuItem<int?>(
+                      value: t.id,
+                      child: Text(t.name),
+                    ),
+                  ),
                 ],
                 onChanged: (v) => _setFilterState(() => _filterTeamId = v),
               ),
@@ -589,6 +715,7 @@ class _PlayersPageState extends State<PlayersPage> {
 
   Widget _buildTableCard() {
     final all = _visiblePlayers;
+    final tableTitle = '${_tableTeamTitle()} Players';
     final total = all.length;
     final totalPages = total == 0 ? 1 : ((total - 1) ~/ _rowsPerPage) + 1;
     final page = _page.clamp(0, totalPages - 1);
@@ -618,9 +745,12 @@ class _PlayersPageState extends State<PlayersPage> {
               children: [
                 const Icon(Icons.table_chart_rounded, size: 18),
                 const SizedBox(width: 8),
-                const Text(
-                  'Squad Players',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+                Text(
+                  tableTitle,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
                 const Spacer(),
                 IconButton(
@@ -644,74 +774,92 @@ class _PlayersPageState extends State<PlayersPage> {
                         return SingleChildScrollView(
                           scrollDirection: Axis.horizontal,
                           child: ConstrainedBox(
-                            constraints: BoxConstraints(minWidth: tableConstraints.maxWidth),
+                            constraints: BoxConstraints(
+                              minWidth: tableConstraints.maxWidth,
+                            ),
                             child: DataTable(
                               sortColumnIndex: _sortColumnIndex,
                               sortAscending: _sortAscending,
-                              headingRowColor: WidgetStateProperty.all(const Color(0xFFF8FAFC)),
+                              headingRowColor: WidgetStateProperty.all(
+                                const Color(0xFFF8FAFC),
+                              ),
                               columnSpacing: 20,
                               columns: [
                                 DataColumn(
-                                  label: const Text('Player ID'),
-                                  onSort: (i, asc) => _sortBy(_SortField.id, i, asc),
+                                  headingRowAlignment: MainAxisAlignment.center,
+                                  label: const Center(child: Text('Name')),
+                                  onSort: (i, asc) =>
+                                      _sortBy(_SortField.name, i, asc),
                                 ),
                                 DataColumn(
-                                  label: const Text('Name'),
-                                  onSort: (i, asc) => _sortBy(_SortField.name, i, asc),
+                                  headingRowAlignment: MainAxisAlignment.center,
+                                  label: const Center(child: Text('Jersey #')),
+                                  onSort: (i, asc) =>
+                                      _sortBy(_SortField.number, i, asc),
                                 ),
                                 DataColumn(
-                                  label: const Text('Jersey #'),
-                                  numeric: true,
-                                  onSort: (i, asc) => _sortBy(_SortField.number, i, asc),
+                                  headingRowAlignment: MainAxisAlignment.center,
+                                  label: const Center(child: Text('Position')),
+                                  onSort: (i, asc) =>
+                                      _sortBy(_SortField.position, i, asc),
                                 ),
                                 DataColumn(
-                                  label: const Text('Position'),
-                                  onSort: (i, asc) => _sortBy(_SortField.position, i, asc),
+                                  headingRowAlignment: MainAxisAlignment.center,
+                                  label: const Center(child: Text('Role')),
+                                  onSort: (i, asc) =>
+                                      _sortBy(_SortField.role, i, asc),
                                 ),
                                 DataColumn(
-                                  label: const Text('Role'),
-                                  onSort: (i, asc) => _sortBy(_SortField.role, i, asc),
+                                  headingRowAlignment: MainAxisAlignment.center,
+                                  label: const Center(
+                                    child: Text('Created Date'),
+                                  ),
+                                  onSort: (i, asc) =>
+                                      _sortBy(_SortField.created, i, asc),
                                 ),
-                                DataColumn(
-                                  label: const Text('Category'),
-                                  onSort: (i, asc) => _sortBy(_SortField.category, i, asc),
+                                const DataColumn(
+                                  headingRowAlignment: MainAxisAlignment.center,
+                                  label: Center(child: Text('Actions')),
                                 ),
-                                DataColumn(
-                                  label: const Text('Team'),
-                                  onSort: (i, asc) => _sortBy(_SortField.team, i, asc),
-                                ),
-                                DataColumn(
-                                  label: const Text('Created Date'),
-                                  onSort: (i, asc) => _sortBy(_SortField.created, i, asc),
-                                ),
-                                const DataColumn(label: Text('Actions')),
                               ],
                               rows: rows.map((p) {
                                 return DataRow(
                                   cells: [
-                                    DataCell(Text(p.id.toString())),
-                                    DataCell(Text(p.name)),
-                                    DataCell(Text(p.number.toString())),
-                                    DataCell(_positionBadge(p.position)),
-                                    DataCell(_roleBadge(p.role)),
-                                    DataCell(Text(p.categoryName ?? '-')),
-                                    DataCell(Text(_teamName(p.teamId))),
-                                    DataCell(Text(_formatDate(p.createdAt))),
+                                    DataCell(Center(child: Text(p.name))),
                                     DataCell(
-                                      Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          IconButton(
-                                            tooltip: 'Edit',
-                                            icon: const Icon(Icons.edit_outlined),
-                                            onPressed: () => _editPlayer(p),
-                                          ),
-                                          IconButton(
-                                            tooltip: 'Delete',
-                                            icon: const Icon(Icons.delete_outline, color: Colors.red),
-                                            onPressed: () => _deletePlayer(p),
-                                          ),
-                                        ],
+                                      Center(child: Text(p.number.toString())),
+                                    ),
+                                    DataCell(
+                                      Center(child: _positionBadge(p.position)),
+                                    ),
+                                    DataCell(Center(child: _roleBadge(p.role))),
+                                    DataCell(
+                                      Center(
+                                        child: Text(_formatDate(p.createdAt)),
+                                      ),
+                                    ),
+                                    DataCell(
+                                      Center(
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            IconButton(
+                                              tooltip: 'Edit',
+                                              icon: const Icon(
+                                                Icons.edit_outlined,
+                                              ),
+                                              onPressed: () => _editPlayer(p),
+                                            ),
+                                            IconButton(
+                                              tooltip: 'Delete',
+                                              icon: const Icon(
+                                                Icons.delete_outline,
+                                                color: Colors.red,
+                                              ),
+                                              onPressed: () => _deletePlayer(p),
+                                            ),
+                                          ],
+                                        ),
                                       ),
                                     ),
                                   ],
@@ -736,7 +884,10 @@ class _PlayersPageState extends State<PlayersPage> {
                 DropdownButton<int>(
                   value: _rowsPerPage,
                   items: const [5, 8, 10, 20, 50]
-                      .map((n) => DropdownMenuItem<int>(value: n, child: Text('$n')))
+                      .map(
+                        (n) =>
+                            DropdownMenuItem<int>(value: n, child: Text('$n')),
+                      )
                       .toList(),
                   onChanged: (v) {
                     if (v == null) return;
@@ -747,12 +898,16 @@ class _PlayersPageState extends State<PlayersPage> {
                   },
                 ),
                 IconButton(
-                  onPressed: page > 0 ? () => setState(() => _page = page - 1) : null,
+                  onPressed: page > 0
+                      ? () => setState(() => _page = page - 1)
+                      : null,
                   icon: const Icon(Icons.chevron_left_rounded),
                 ),
                 Text('${page + 1}/$totalPages'),
                 IconButton(
-                  onPressed: page + 1 < totalPages ? () => setState(() => _page = page + 1) : null,
+                  onPressed: page + 1 < totalPages
+                      ? () => setState(() => _page = page + 1)
+                      : null,
                   icon: const Icon(Icons.chevron_right_rounded),
                 ),
               ],
@@ -789,7 +944,9 @@ class _PlayersPageState extends State<PlayersPage> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final wide = constraints.maxWidth >= 1200;
-        final compactTableHeight = (constraints.maxHeight * 0.9).clamp(360.0, 640.0).toDouble();
+        final compactTableHeight = (constraints.maxHeight * 0.9)
+            .clamp(360.0, 640.0)
+            .toDouble();
 
         return Padding(
           padding: const EdgeInsets.all(16),
@@ -802,7 +959,7 @@ class _PlayersPageState extends State<PlayersPage> {
               ),
               const SizedBox(height: 4),
               const Text(
-                'Manage squad players, roles, and structure in one place.',
+                'Manage squad players with position-based categories.',
                 style: TextStyle(color: Colors.black54),
               ),
               const SizedBox(height: 12),
