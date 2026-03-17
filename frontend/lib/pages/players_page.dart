@@ -46,11 +46,18 @@ class _PlayersPageState extends State<PlayersPage> {
     'RW': 'Forward',
     'ST': 'Forward',
   };
+  static const List<String> _categoryDisplayOrder = [
+    'Goalkeeper',
+    'Defender',
+    'Midfielder',
+    'Forward',
+  ];
 
   List<Player> _players = [];
   List<({int id, String name})> _teams = [];
   List<({int id, String name})> _categories = [];
 
+  String? _selectedCategory;
   String? _selectedPosition;
   int? _selectedTeamId;
 
@@ -58,7 +65,6 @@ class _PlayersPageState extends State<PlayersPage> {
   String? _filterPosition;
   String? _filterRole;
   int? _filterCategoryId;
-  int? _filterTeamId;
 
   int? _editingPlayerId;
   bool _loading = true;
@@ -111,7 +117,9 @@ class _PlayersPageState extends State<PlayersPage> {
         _players = players;
         _teams = teams;
         _categories = categories;
+        _selectedCategory ??= _categoryDisplayOrder.first;
         _selectedPosition ??= _positions.first;
+        _syncSelectedPositionWithCategory();
         _selectedTeamId ??= _teams.isNotEmpty ? _teams.first.id : null;
         _loading = false;
       });
@@ -176,7 +184,7 @@ class _PlayersPageState extends State<PlayersPage> {
   }
 
   String _tableTeamTitle() {
-    final teamId = _filterTeamId ?? _selectedTeamId;
+    final teamId = _selectedTeamId;
     if (teamId != null) return _teamName(teamId);
     if (_teams.isNotEmpty) return _teams.first.name;
     return 'Team';
@@ -185,6 +193,27 @@ class _PlayersPageState extends State<PlayersPage> {
   String _categoryNameForPosition(String? position) {
     if (position == null) return '-';
     return _positionCategoryMap[position] ?? '-';
+  }
+
+  List<String> _positionsForCategory(String? category) {
+    if (category == null) return _positions;
+    final normalized = category.toLowerCase().trim();
+    return _positions
+        .where(
+          (p) => (_positionCategoryMap[p] ?? '').toLowerCase() == normalized,
+        )
+        .toList();
+  }
+
+  void _syncSelectedPositionWithCategory() {
+    final available = _positionsForCategory(_selectedCategory);
+    if (available.isEmpty) {
+      _selectedPosition = null;
+      return;
+    }
+    if (_selectedPosition == null || !available.contains(_selectedPosition)) {
+      _selectedPosition = available.first;
+    }
   }
 
   int? _categoryIdByName(String categoryName) {
@@ -206,12 +235,6 @@ class _PlayersPageState extends State<PlayersPage> {
     }
   }
 
-  int? _autoCategoryIdForPosition(String? position) {
-    final categoryName = _categoryNameForPosition(position);
-    if (categoryName == '-') return null;
-    return _categoryIdByName(categoryName);
-  }
-
   bool _isJerseyNumberTaken(int number, int teamId, {int? excludingPlayerId}) {
     return _players.any(
       (p) =>
@@ -229,7 +252,7 @@ class _PlayersPageState extends State<PlayersPage> {
 
   Future<void> _submitForm() async {
     if (!_formKey.currentState!.validate()) return;
-    if (_selectedPosition == null || _selectedTeamId == null) {
+    if (_selectedCategory == null || _selectedPosition == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please complete required fields')),
       );
@@ -243,14 +266,18 @@ class _PlayersPageState extends State<PlayersPage> {
       ).showSnackBar(const SnackBar(content: Text('Jersey number is invalid')));
       return;
     }
-    if (_isJerseyNumberTaken(
-      number,
-      _selectedTeamId!,
-      excludingPlayerId: _editingPlayerId,
-    )) {
+    final selectedTeamId = _selectedTeamId;
+    final isTaken = selectedTeamId != null
+        ? _isJerseyNumberTaken(
+            number,
+            selectedTeamId,
+            excludingPlayerId: _editingPlayerId,
+          )
+        : _players.any((p) => p.number == number && p.id != _editingPlayerId);
+    if (isTaken) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Jersey number must be unique in the selected team'),
+          content: Text('Jersey number must be unique in your team'),
         ),
       );
       return;
@@ -258,7 +285,7 @@ class _PlayersPageState extends State<PlayersPage> {
 
     setState(() => _saving = true);
     try {
-      final categoryId = _autoCategoryIdForPosition(_selectedPosition);
+      final categoryId = _categoryIdByName(_selectedCategory!);
       final role = _roleForSubmit();
       if (_editingPlayerId == null) {
         await _playerService.createPlayer(
@@ -267,7 +294,6 @@ class _PlayersPageState extends State<PlayersPage> {
           position: _selectedPosition!,
           role: role,
           categoryId: categoryId,
-          teamId: _selectedTeamId!,
         );
       } else {
         await _playerService.updatePlayer(
@@ -277,7 +303,6 @@ class _PlayersPageState extends State<PlayersPage> {
           position: _selectedPosition!,
           role: role,
           categoryId: categoryId,
-          teamId: _selectedTeamId!,
         );
       }
 
@@ -310,7 +335,10 @@ class _PlayersPageState extends State<PlayersPage> {
       _editingPlayerId = p.id;
       _nameController.text = p.name;
       _numberController.text = p.number.toString();
+      _selectedCategory =
+          p.categoryName ?? _categoryNameForPosition(p.position);
       _selectedPosition = p.position;
+      _syncSelectedPositionWithCategory();
       _selectedTeamId = p.teamId;
     });
   }
@@ -366,7 +394,8 @@ class _PlayersPageState extends State<PlayersPage> {
       _editingPlayerId = null;
       _nameController.clear();
       _numberController.clear();
-      _selectedPosition = _positions.first;
+      _selectedCategory = _categoryDisplayOrder.first;
+      _selectedPosition = _positionsForCategory(_selectedCategory).firstOrNull;
       _selectedTeamId = _teams.isNotEmpty ? _teams.first.id : null;
     });
   }
@@ -384,7 +413,6 @@ class _PlayersPageState extends State<PlayersPage> {
       if (_filterCategoryId != null && p.categoryId != _filterCategoryId) {
         return false;
       }
-      if (_filterTeamId != null && p.teamId != _filterTeamId) return false;
       return true;
     }).toList();
 
@@ -460,6 +488,8 @@ class _PlayersPageState extends State<PlayersPage> {
   }
 
   Widget _buildFormCard() {
+    final availablePositions = _positionsForCategory(_selectedCategory);
+
     return Card(
       color: Colors.white,
       elevation: 0,
@@ -511,22 +541,41 @@ class _PlayersPageState extends State<PlayersPage> {
                   final number = int.tryParse(v?.trim() ?? '');
                   if (number == null) return 'Valid number required';
                   final teamId = _selectedTeamId;
-                  if (teamId == null) return 'Team is required';
-                  if (_isJerseyNumberTaken(
-                    number,
-                    teamId,
-                    excludingPlayerId: _editingPlayerId,
-                  )) {
-                    return 'Jersey number already used in this team';
+                  final isTaken = teamId != null
+                      ? _isJerseyNumberTaken(
+                          number,
+                          teamId,
+                          excludingPlayerId: _editingPlayerId,
+                        )
+                      : _players.any(
+                          (p) => p.number == number && p.id != _editingPlayerId,
+                        );
+                  if (isTaken) {
+                    return 'Jersey number already used in your team';
                   }
                   return null;
                 },
               ),
               const SizedBox(height: 10),
               DropdownButtonFormField<String>(
+                initialValue: _selectedCategory,
+                decoration: const InputDecoration(labelText: 'Category'),
+                items: _categoryDisplayOrder
+                    .map((c) => DropdownMenuItem(value: c, child: Text(c)))
+                    .toList(),
+                onChanged: (v) {
+                  setState(() {
+                    _selectedCategory = v;
+                    _syncSelectedPositionWithCategory();
+                  });
+                },
+                validator: (v) => v == null ? 'Category is required' : null,
+              ),
+              const SizedBox(height: 10),
+              DropdownButtonFormField<String>(
                 initialValue: _selectedPosition,
                 decoration: const InputDecoration(labelText: 'Position'),
-                items: _positions
+                items: availablePositions
                     .map((p) => DropdownMenuItem(value: p, child: Text(p)))
                     .toList(),
                 onChanged: (v) {
@@ -538,28 +587,11 @@ class _PlayersPageState extends State<PlayersPage> {
               ),
               const SizedBox(height: 10),
               InputDecorator(
-                decoration: const InputDecoration(
-                  labelText: 'Category (Auto from Position)',
-                ),
+                decoration: const InputDecoration(labelText: 'Team'),
                 child: Text(
-                  _categoryNameForPosition(_selectedPosition),
+                  _tableTeamTitle(),
                   style: const TextStyle(fontWeight: FontWeight.w600),
                 ),
-              ),
-              const SizedBox(height: 10),
-              DropdownButtonFormField<int>(
-                initialValue: _selectedTeamId,
-                decoration: const InputDecoration(labelText: 'Team'),
-                items: _teams
-                    .map(
-                      (t) => DropdownMenuItem(value: t.id, child: Text(t.name)),
-                    )
-                    .toList(),
-                onChanged: (v) {
-                  setState(() => _selectedTeamId = v);
-                  _formKey.currentState?.validate();
-                },
-                validator: (v) => v == null ? 'Team is required' : null,
               ),
               const SizedBox(height: 14),
               Row(
@@ -676,23 +708,6 @@ class _PlayersPageState extends State<PlayersPage> {
                 onChanged: (v) => _setFilterState(() => _filterCategoryId = v),
               ),
             ),
-            SizedBox(
-              width: 170,
-              child: DropdownButtonFormField<int?>(
-                initialValue: _filterTeamId,
-                decoration: const InputDecoration(labelText: 'Team'),
-                items: [
-                  const DropdownMenuItem<int?>(value: null, child: Text('All')),
-                  ..._teams.map(
-                    (t) => DropdownMenuItem<int?>(
-                      value: t.id,
-                      child: Text(t.name),
-                    ),
-                  ),
-                ],
-                onChanged: (v) => _setFilterState(() => _filterTeamId = v),
-              ),
-            ),
             TextButton.icon(
               onPressed: () {
                 _searchController.clear();
@@ -701,7 +716,6 @@ class _PlayersPageState extends State<PlayersPage> {
                   _filterPosition = null;
                   _filterRole = null;
                   _filterCategoryId = null;
-                  _filterTeamId = null;
                 });
               },
               icon: const Icon(Icons.clear_all_rounded),

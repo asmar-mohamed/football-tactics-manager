@@ -47,8 +47,8 @@ class User extends Authenticatable
         ];
     }
 
-    public function teams()
+    public function team()
     {
-        return $this->hasMany(Team::class, 'coach_id');
+        return $this->hasOne(Team::class, 'coach_id');
     }
 }

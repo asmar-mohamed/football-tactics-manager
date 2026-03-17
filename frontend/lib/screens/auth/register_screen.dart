@@ -13,10 +13,20 @@ class RegisterScreen extends StatefulWidget {
 
 class _RegisterScreenState extends State<RegisterScreen> {
   final nameController = TextEditingController();
+  final teamNameController = TextEditingController();
   final emailController = TextEditingController();
   final passwordController = TextEditingController();
   bool loading = false;
   String? error;
+
+  @override
+  void dispose() {
+    nameController.dispose();
+    teamNameController.dispose();
+    emailController.dispose();
+    passwordController.dispose();
+    super.dispose();
+  }
 
   Future<void> _submit() async {
     setState(() {
@@ -25,10 +35,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
     });
     try {
       await context.read<AuthProvider>().register(
-            nameController.text.trim(),
-            emailController.text.trim(),
-            passwordController.text.trim(),
-          );
+        nameController.text.trim(),
+        emailController.text.trim(),
+        passwordController.text.trim(),
+        teamNameController.text.trim(),
+      );
       if (mounted) Navigator.pop(context);
     } catch (e) {
       setState(() => error = e.toString());
@@ -40,7 +51,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
   @override
   Widget build(BuildContext context) {
     final width = MediaQuery.of(context).size.width;
-    final double cardWidth = width > 900 ? 520 : width > 600 ? 440 : width - 32;
+    final double cardWidth = width > 900
+        ? 520
+        : width > 600
+        ? 440
+        : width - 32;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF4F6F9),
@@ -53,18 +68,44 @@ class _RegisterScreenState extends State<RegisterScreen> {
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(18),
-              boxShadow: const [BoxShadow(blurRadius: 24, color: Color(0x1A000000), offset: Offset(0, 12))],
+              boxShadow: const [
+                BoxShadow(
+                  blurRadius: 24,
+                  color: Color(0x1A000000),
+                  offset: Offset(0, 12),
+                ),
+              ],
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Create account', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w700)),
+                const Text(
+                  'Create account',
+                  style: TextStyle(fontSize: 26, fontWeight: FontWeight.w700),
+                ),
                 const SizedBox(height: 6),
-                const Text('Register as a coach.', style: TextStyle(color: Colors.grey)),
+                const Text(
+                  'Register as a coach.',
+                  style: TextStyle(color: Colors.grey),
+                ),
                 const SizedBox(height: 24),
-                CustomTextField(controller: nameController, label: 'Full name', hint: 'Ada Lovelace'),
+                CustomTextField(
+                  controller: nameController,
+                  label: 'Full name',
+                  hint: 'Ada Lovelace',
+                ),
                 const SizedBox(height: 16),
-                CustomTextField(controller: emailController, label: 'Email', hint: 'name@club.com'),
+                CustomTextField(
+                  controller: teamNameController,
+                  label: 'Team name',
+                  hint: 'e.g. Atlas FC',
+                ),
+                const SizedBox(height: 16),
+                CustomTextField(
+                  controller: emailController,
+                  label: 'Email',
+                  hint: 'name@club.com',
+                ),
                 const SizedBox(height: 16),
                 CustomTextField(
                   controller: passwordController,
@@ -85,10 +126,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF5B21B6),
                       foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      textStyle: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 16,
+                      ),
                     ),
-                    child: loading ? const CircularProgressIndicator(color: Colors.white) : const Text('Sign up'),
+                    child: loading
+                        ? const CircularProgressIndicator(color: Colors.white)
+                        : const Text('Sign up'),
                   ),
                 ),
                 const SizedBox(height: 18),

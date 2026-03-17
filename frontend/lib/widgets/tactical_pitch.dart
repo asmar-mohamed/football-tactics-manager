@@ -6,10 +6,7 @@ import '../models/player.dart';
 import '../services/player_service.dart';
 
 class TacticalPitch extends StatefulWidget {
-  const TacticalPitch({
-    super.key,
-    this.onLineupChanged,
-  });
+  const TacticalPitch({super.key, this.onLineupChanged});
 
   final VoidCallback? onLineupChanged;
 
@@ -23,7 +20,7 @@ class _PlayerData {
   final String number;
   final String category;
   Offset pos; // normalized 0-1
-  
+
   _PlayerData(this.id, this.name, this.number, this.category, this.pos);
 }
 
@@ -63,7 +60,9 @@ class TacticalPitchState extends State<TacticalPitch> {
       starters.sort((a, b) => a.number.compareTo(b.number));
       _teamId = starters.isNotEmpty ? starters.first.teamId : null;
       _tacticId = await _resolveOrCreateTacticId(_teamId);
-      final savedPositions = _tacticId != null ? await _fetchSavedPositions(_tacticId!) : <int, Offset>{};
+      final savedPositions = _tacticId != null
+          ? await _fetchSavedPositions(_tacticId!)
+          : <int, Offset>{};
 
       final count = min(starters.length, _starterSlots.length);
       _players = List.generate(
@@ -201,7 +200,10 @@ class TacticalPitchState extends State<TacticalPitch> {
       _tacticId ??= await _resolveOrCreateTacticId(_teamId);
       final tacticId = _tacticId;
       if (tacticId == null) {
-        return (success: false, message: 'No team tactic available to save positions');
+        return (
+          success: false,
+          message: 'No team tactic available to save positions',
+        );
       }
 
       for (final player in _players) {
@@ -215,7 +217,10 @@ class TacticalPitchState extends State<TacticalPitch> {
 
       return (success: true, message: 'Lineup saved successfully');
     } catch (e) {
-      return (success: false, message: 'Failed to save lineup: ${_errorMessage(e)}');
+      return (
+        success: false,
+        message: 'Failed to save lineup: ${_errorMessage(e)}',
+      );
     }
   }
 
@@ -238,11 +243,75 @@ class TacticalPitchState extends State<TacticalPitch> {
     return minIndex;
   }
 
+  Offset _normalizedDropPosition(
+    Offset localPoint,
+    BoxConstraints constraints,
+  ) {
+    final w = constraints.maxWidth;
+    final h = constraints.maxHeight;
+    if (w <= 0 || h <= 0) return const Offset(0.5, 0.5);
+
+    final dxClamp = (_tokenSize / 2) / w;
+    final dyClamp = (_tokenSize / 2) / h;
+    final nx = (localPoint.dx / w).clamp(dxClamp, 1 - dxClamp).toDouble();
+    final ny = (localPoint.dy / h).clamp(dyClamp, 1 - dyClamp).toDouble();
+    return Offset(nx, ny);
+  }
+
   Future<void> _handleDroppedBankPlayer(
     Player droppedPlayer,
     Offset localPoint,
     BoxConstraints constraints,
   ) async {
+    if (_loading) return;
+    if (_teamId != null && droppedPlayer.teamId != _teamId) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('You can only drop players from your current team'),
+        ),
+      );
+      return;
+    }
+
+    if (_players.isEmpty) {
+      final previousTeamId = _teamId;
+      final position = _normalizedDropPosition(localPoint, constraints);
+      final added = _PlayerData(
+        droppedPlayer.id,
+        droppedPlayer.name,
+        droppedPlayer.number.toString(),
+        _categoryBadgeText(droppedPlayer.categoryName),
+        position,
+      );
+
+      setState(() {
+        _teamId ??= droppedPlayer.teamId;
+        _error = null;
+        _players = [added];
+      });
+
+      try {
+        _tacticId ??= await _resolveOrCreateTacticId(_teamId);
+        await _playerService.updatePlayerRole(droppedPlayer.id, 'starter');
+        widget.onLineupChanged?.call();
+      } catch (e) {
+        if (!mounted) return;
+        setState(() {
+          _players.clear();
+          _teamId = previousTeamId;
+          _error = 'No starter players found';
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to assign player: ${_errorMessage(e)}'),
+            backgroundColor: Colors.red.shade600,
+          ),
+        );
+      }
+      return;
+    }
+
     final targetIndex = _nearestStarterIndex(localPoint, constraints);
     if (targetIndex < 0 || targetIndex >= _players.length) return;
 
@@ -292,7 +361,11 @@ class TacticalPitchState extends State<TacticalPitch> {
                 final box = context.findRenderObject();
                 if (box is! RenderBox) return;
                 final localPoint = box.globalToLocal(details.offset);
-                await _handleDroppedBankPlayer(details.data, localPoint, constraints);
+                await _handleDroppedBankPlayer(
+                  details.data,
+                  localPoint,
+                  constraints,
+                );
               },
               builder: (context, candidateData, rejectedData) {
                 return Stack(
@@ -302,7 +375,10 @@ class TacticalPitchState extends State<TacticalPitch> {
                     if (candidateData.isNotEmpty)
                       Container(
                         decoration: BoxDecoration(
-                          border: Border.all(color: const Color(0xAA37C8DF), width: 2),
+                          border: Border.all(
+                            color: const Color(0xAA37C8DF),
+                            width: 2,
+                          ),
                           borderRadius: BorderRadius.circular(12),
                         ),
                       ),
@@ -312,13 +388,20 @@ class TacticalPitchState extends State<TacticalPitch> {
                       Center(
                         child: Text(
                           _error!,
-                          style: TextStyle(color: Colors.red.shade700, fontWeight: FontWeight.w600),
+                          style: TextStyle(
+                            color: Colors.red.shade700,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
                     for (var i = 0; i < _players.length; i++)
                       Positioned(
-                        left: _players[i].pos.dx * constraints.maxWidth - (_tokenSize / 2),
-                        top: _players[i].pos.dy * constraints.maxHeight - (_tokenSize / 2),
+                        left:
+                            _players[i].pos.dx * constraints.maxWidth -
+                            (_tokenSize / 2),
+                        top:
+                            _players[i].pos.dy * constraints.maxHeight -
+                            (_tokenSize / 2),
                         child: GestureDetector(
                           onPanUpdate: (details) {
                             setState(() {
@@ -326,8 +409,10 @@ class TacticalPitchState extends State<TacticalPitch> {
                               final h = constraints.maxHeight;
                               final dxClamp = (_tokenSize / 2) / w;
                               final dyClamp = (_tokenSize / 2) / h;
-                              final newX = _players[i].pos.dx + (details.delta.dx / w);
-                              final newY = _players[i].pos.dy + (details.delta.dy / h);
+                              final newX =
+                                  _players[i].pos.dx + (details.delta.dx / w);
+                              final newY =
+                                  _players[i].pos.dy + (details.delta.dy / h);
                               _players[i].pos = Offset(
                                 newX.clamp(dxClamp, 1 - dxClamp),
                                 newY.clamp(dyClamp, 1 - dyClamp),
@@ -355,8 +440,8 @@ class TacticalPitchState extends State<TacticalPitch> {
 
 class _PlayerToken extends StatelessWidget {
   const _PlayerToken({
-    required this.name, 
-    required this.number, 
+    required this.name,
+    required this.number,
     required this.category,
     this.elevated = false,
   });
@@ -397,7 +482,10 @@ class _PlayerToken extends StatelessWidget {
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: const Color(0xFF1ED6B0).withValues(alpha: 0.55),
-                border: Border.all(color: Colors.white.withValues(alpha: 0.45), width: 2),
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: 0.45),
+                  width: 2,
+                ),
                 boxShadow: elevated
                     ? [
                         BoxShadow(
@@ -458,13 +546,17 @@ class _PlayerToken extends StatelessWidget {
                       color: Colors.black.withValues(alpha: 0.25),
                       blurRadius: 8,
                       offset: const Offset(0, 4),
-                    )
+                    ),
                   ]
                 : null,
           ),
           child: Text(
             '$name ($number)',
-            style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w600),
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
       ],
@@ -492,7 +584,10 @@ class _PitchPainter extends CustomPainter {
     final stripeWidth = size.width / stripeCount;
     for (var i = 0; i < stripeCount; i++) {
       if (i.isEven) {
-        canvas.drawRect(Rect.fromLTWH(i * stripeWidth, 0, stripeWidth, size.height), stripePaint);
+        canvas.drawRect(
+          Rect.fromLTWH(i * stripeWidth, 0, stripeWidth, size.height),
+          stripePaint,
+        );
       }
     }
 

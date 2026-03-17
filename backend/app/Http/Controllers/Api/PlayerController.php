@@ -19,9 +19,10 @@ class PlayerController extends Controller
             $this->authorize('view', $team);
             $players = $team->players()->with('category')->get();
         } else {
-            $players = Player::whereIn('team_id', Auth::user()->teams->pluck('id'))
-                ->with('category')
-                ->get();
+            $teamId = Auth::user()?->team?->id;
+            $players = $teamId
+                ? Player::where('team_id', $teamId)->with('category')->get()
+                : collect();
         }
 
         return response()->json([
@@ -32,7 +33,13 @@ class PlayerController extends Controller
 
     public function store(StorePlayerRequest $request)
     {
-        $team = Team::findOrFail($request->team_id);
+        $team = Auth::user()?->team;
+        if (!$team) {
+            return response()->json([
+                'message' => 'No team found for current user'
+            ], 422);
+        }
+
         $this->authorize('update', $team);
 
         $player = $team->players()->create($request->validated());

@@ -11,19 +11,25 @@ class AuthService {
     });
     return (
       res['token'] as String,
-      User.fromMap(res['user'] as Map<String, dynamic>)
+      User.fromMap(res['user'] as Map<String, dynamic>),
     );
   }
 
-  Future<(String token, User user)> register(String name, String email, String password) async {
+  Future<(String token, User user)> register(
+    String name,
+    String email,
+    String password,
+    String teamName,
+  ) async {
     final res = await _api.post('/register', {
       'name': name,
       'email': email,
       'password': password,
+      'team_name': teamName,
     });
     return (
       res['token'] as String,
-      User.fromMap(res['user'] as Map<String, dynamic>)
+      User.fromMap(res['user'] as Map<String, dynamic>),
     );
   }
 

@@ -24,9 +24,14 @@ class TacticController extends Controller
             $query->where('team_id', $request->team_id)
                   ->orWhere('is_default', true); // Include defaults when asking for a team's tactics
         } else {
-            // General list for the user: their tactics + defaults
-            $query->whereIn('team_id', Auth::user()->teams->pluck('id'))
-                  ->orWhere('is_default', true);
+            // General list for the user: their team tactics + defaults
+            $teamId = Auth::user()?->team?->id;
+            $query->where(function ($q) use ($teamId) {
+                if ($teamId) {
+                    $q->where('team_id', $teamId);
+                }
+                $q->orWhere('is_default', true);
+            });
         }
 
         return response()->json([

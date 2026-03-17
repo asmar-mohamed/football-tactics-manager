@@ -19,7 +19,10 @@ class TrainingSessionController extends Controller
             $this->authorize('view', $team);
             $sessions = $team->trainingSessions;
         } else {
-            $sessions = TrainingSession::whereIn('team_id', Auth::user()->teams->pluck('id'))->get();
+            $teamId = Auth::user()?->team?->id;
+            $sessions = $teamId
+                ? TrainingSession::where('team_id', $teamId)->get()
+                : collect();
         }
 
         return response()->json([

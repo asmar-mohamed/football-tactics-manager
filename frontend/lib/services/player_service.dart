@@ -10,18 +10,18 @@ class PlayerService {
     final list = res is Map<String, dynamic>
         ? (res['data'] as List<dynamic>? ?? [])
         : res is List
-            ? res
-            : <dynamic>[];
+        ? res
+        : <dynamic>[];
 
-    final players = list.map((e) => Player.fromMap(e as Map<String, dynamic>)).toList();
+    final players = list
+        .map((e) => Player.fromMap(e as Map<String, dynamic>))
+        .toList();
     if (role == null || role.isEmpty) return players;
     return players.where((p) => p.role == role).toList();
   }
 
   Future<void> updatePlayerRole(int playerId, String role) async {
-    await _api.put('/players/$playerId', {
-      'role': role,
-    });
+    await _api.put('/players/$playerId', {'role': role});
   }
 
   Future<Player> createPlayer({
@@ -30,7 +30,6 @@ class PlayerService {
     required String position,
     required String role,
     int? categoryId,
-    required int teamId,
   }) async {
     final res = await _api.post('/players', {
       'name': name,
@@ -38,7 +37,6 @@ class PlayerService {
       'position': position,
       'role': role,
       'category_id': categoryId,
-      'team_id': teamId,
     });
 
     final data = res is Map<String, dynamic> ? res['data'] : null;
@@ -53,7 +51,6 @@ class PlayerService {
     required String position,
     required String role,
     int? categoryId,
-    required int teamId,
   }) async {
     final res = await _api.put('/players/$playerId', {
       'name': name,
@@ -61,7 +58,6 @@ class PlayerService {
       'position': position,
       'role': role,
       'category_id': categoryId,
-      'team_id': teamId,
     });
 
     final data = res is Map<String, dynamic> ? res['data'] : null;
@@ -78,12 +74,17 @@ class PlayerService {
     final list = res is Map<String, dynamic>
         ? (res['data'] as List<dynamic>? ?? [])
         : res is List
-            ? res
-            : <dynamic>[];
+        ? res
+        : <dynamic>[];
 
     return list
         .whereType<Map<String, dynamic>>()
-        .map((e) => (id: (e['id'] as int), name: (e['name'] as String? ?? 'Team #${e['id']}')))
+        .map(
+          (e) => (
+            id: (e['id'] as int),
+            name: (e['name'] as String? ?? 'Team #${e['id']}'),
+          ),
+        )
         .toList();
   }
 }

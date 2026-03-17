@@ -5,8 +5,10 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\User;
+use App\Models\Team;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 
 class AuthController extends Controller
 {
@@ -16,14 +18,24 @@ class AuthController extends Controller
         $request->validate([
             'name'=>'required',
             'email'=>'required|email|unique:users',
-            'password'=>'required|min:6'
+            'password'=>'required|min:6',
+            'team_name' => 'required|string|max:255',
         ]);
 
-        $user = User::create([
-            'name'=>$request->name,
-            'email'=>$request->email,
-            'password'=>Hash::make($request->password)
-        ]);
+        $user = DB::transaction(function () use ($request) {
+            $user = User::create([
+                'name'=>$request->name,
+                'email'=>$request->email,
+                'password'=>Hash::make($request->password)
+            ]);
+
+            Team::create([
+                'name' => $request->team_name,
+                'coach_id' => $user->id,
+            ]);
+
+            return $user;
+        });
 
         $token = $user->createToken("api_token")->plainTextToken;
 

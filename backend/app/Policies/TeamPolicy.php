@@ -19,7 +19,7 @@ class TeamPolicy
 
     public function create(User $user): bool
     {
-        return true; // Any authenticated user can create a team
+        return !$user->team()->exists();
     }
 
     public function update(User $user, Team $team): bool

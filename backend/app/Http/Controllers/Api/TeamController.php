@@ -18,7 +18,9 @@ class TeamController extends Controller
 
     public function index()
     {
-        $teams = Auth::user()->teams()->withCount('players')->get();
+        $team = Auth::user()->team()->withCount('players')->first();
+        $teams = $team ? [$team] : [];
+
         return response()->json([
             'message' => 'Teams retrieved',
             'data' => $teams
@@ -27,7 +29,13 @@ class TeamController extends Controller
 
     public function store(StoreTeamRequest $request)
     {
-        $team = Auth::user()->teams()->create($request->validated());
+        if (Auth::user()->team()->exists()) {
+            return response()->json([
+                'message' => 'You already have a team'
+            ], 422);
+        }
+
+        $team = Auth::user()->team()->create($request->validated());
 
         return response()->json([
             'message' => 'Team created',
