@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import 'package:frontend/pages/dashboard_page.dart';
 import 'package:frontend/pages/players_page.dart';
-import 'package:frontend/pages/settings_page.dart';
+import 'package:frontend/pages/profile_page.dart';
 import 'package:frontend/pages/tactics_page.dart';
 import 'package:frontend/pages/training_page.dart';
+import 'package:frontend/providers/auth_provider.dart';
 
 class DashboardShell extends StatefulWidget {
   const DashboardShell({super.key});
@@ -14,16 +16,19 @@ class DashboardShell extends StatefulWidget {
 }
 
 class _DashboardShellState extends State<DashboardShell> {
+  static const int _profilePageIndex = 4;
+
   int _selectedIndex = 0;
   bool _savingLineup = false;
-  final GlobalKey<DashboardPageState> _dashboardPageKey = GlobalKey<DashboardPageState>();
+  final GlobalKey<DashboardPageState> _dashboardPageKey =
+      GlobalKey<DashboardPageState>();
 
   final _items = const [
     _NavItem('Dashboard', Icons.dashboard_outlined),
     _NavItem('Players', Icons.group_outlined),
     _NavItem('Tactics', Icons.sports_soccer_outlined),
     _NavItem('Training Sessions', Icons.fitness_center_outlined),
-    _NavItem('Settings', Icons.settings_outlined),
+    _NavItem('Profile', Icons.person_outline),
   ];
 
   late final List<Widget> _pages = [
@@ -31,8 +36,100 @@ class _DashboardShellState extends State<DashboardShell> {
     PlayersPage(),
     const TacticsPage(),
     const TrainingPage(),
-    const SettingsPage(),
+    const ProfilePage(),
   ];
+
+  String _initialFromName(String fullName) {
+    final trimmed = fullName.trim();
+    if (trimmed.isEmpty) return 'C';
+    return trimmed.substring(0, 1).toUpperCase();
+  }
+
+  Future<void> _openProfile() async {
+    setState(() => _selectedIndex = _profilePageIndex);
+  }
+
+  Future<void> _logout() async {
+    await context.read<AuthProvider>().logout();
+  }
+
+  Future<void> _showCoachMenuAt(Offset globalPosition) async {
+    const accent = Color(0xFF1ED6B0);
+    const menuWidth = 108.0;
+    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
+
+    final position = RelativeRect.fromLTRB(
+      globalPosition.dx - menuWidth,
+      globalPosition.dy + 6,
+      overlay.size.width - globalPosition.dx,
+      overlay.size.height - globalPosition.dy,
+    );
+
+    final action = await showMenu<_CoachMenuAction>(
+      context: context,
+      position: position,
+      color: Colors.white,
+      surfaceTintColor: Colors.white,
+      elevation: 8,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      items: [
+        PopupMenuItem<_CoachMenuAction>(
+          value: _CoachMenuAction.profile,
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          child: Container(
+            width: menuWidth - 16,
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: accent, width: 1.3),
+            ),
+            alignment: Alignment.center,
+            child: const Text(
+              'Profile',
+              style: TextStyle(
+                color: accent,
+                fontWeight: FontWeight.w700,
+                fontSize: 12,
+              ),
+            ),
+          ),
+        ),
+        PopupMenuItem<_CoachMenuAction>(
+          value: _CoachMenuAction.logout,
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          child: Container(
+            width: menuWidth - 16,
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: accent, width: 1.3),
+            ),
+            alignment: Alignment.center,
+            child: const Text(
+              'Logout',
+              style: TextStyle(
+                color: accent,
+                fontWeight: FontWeight.w700,
+                fontSize: 12,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+
+    if (!mounted || action == null) return;
+    switch (action) {
+      case _CoachMenuAction.profile:
+        await _openProfile();
+        break;
+      case _CoachMenuAction.logout:
+        await _logout();
+        break;
+    }
+  }
 
   Future<void> _onSaveLineupPressed() async {
     if (_selectedIndex != 0) {
@@ -58,13 +155,20 @@ class _DashboardShellState extends State<DashboardShell> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(result.message),
-        backgroundColor: result.success ? Colors.green.shade600 : Colors.red.shade600,
+        backgroundColor: result.success
+            ? Colors.green.shade600
+            : Colors.red.shade600,
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final auth = context.watch<AuthProvider>();
+    final coachName = (auth.user?.name ?? 'Coach').trim();
+    final coachDisplayName = coachName.isEmpty ? 'Coach' : coachName;
+    final coachInitial = _initialFromName(coachDisplayName);
+
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
@@ -86,17 +190,29 @@ class _DashboardShellState extends State<DashboardShell> {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text(
-                  'Coach',
-                  style: TextStyle(color: Colors.black87, fontWeight: FontWeight.w600),
+                Text(
+                  coachDisplayName,
+                  style: TextStyle(
+                    color: Colors.black87,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
                 const SizedBox(width: 10),
-                const CircleAvatar(
-                  radius: 16,
-                  backgroundColor: Color(0xFF1ED6B0),
-                  child: Text(
-                    'C',
-                    style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700),
+                GestureDetector(
+                  onTapDown: (details) {
+                    _showCoachMenuAt(details.globalPosition);
+                  },
+                  child: CircleAvatar(
+                    radius: 16,
+                    backgroundColor: const Color(0xFF1ED6B0),
+                    child: Text(
+                      coachInitial,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -108,18 +224,26 @@ class _DashboardShellState extends State<DashboardShell> {
                       foregroundColor: Colors.white,
                       backgroundColor: const Color(0xFF1ED6B0),
                       padding: const EdgeInsets.symmetric(horizontal: 14),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
                       side: BorderSide.none,
                     ),
                     child: _savingLineup
                         ? const SizedBox(
                             width: 16,
                             height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
                           )
                         : const Text(
                             'Save Lineup',
-                            style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14,
+                            ),
                           ),
                   ),
                 ),
@@ -233,3 +357,5 @@ class _NavItem {
   final IconData icon;
   const _NavItem(this.label, this.icon);
 }
+
+enum _CoachMenuAction { profile, logout }

@@ -66,4 +66,9 @@ class AuthProvider extends ChangeNotifier {
     ApiClient.instance.setToken(null);
     notifyListeners();
   }
+
+  void setUser(User updatedUser) {
+    user = updatedUser;
+    notifyListeners();
+  }
 }
