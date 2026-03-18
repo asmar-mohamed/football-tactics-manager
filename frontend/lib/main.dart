@@ -22,7 +22,9 @@ class App extends StatelessWidget {
         builder: (context, auth, _) {
           // Wait until token load finishes
           if (!auth.isReady) {
-            return const MaterialApp(home: Scaffold(body: Center(child: CircularProgressIndicator())));
+            return const MaterialApp(
+              home: Scaffold(body: Center(child: CircularProgressIndicator())),
+            );
           }
           return MaterialApp(
             debugShowCheckedModeBanner: false,
