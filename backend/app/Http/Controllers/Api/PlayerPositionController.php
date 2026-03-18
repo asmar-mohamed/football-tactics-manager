@@ -58,12 +58,7 @@ class PlayerPositionController extends Controller
             $this->authorize('view', $tactic->team);
         }
 
-        $userTeamIds = auth()->user()->teams->pluck('id');
-
         $positions = $tactic->playerPositions()
-            ->whereHas('player', function ($query) use ($userTeamIds) {
-                $query->whereIn('team_id', $userTeamIds);
-            })
             ->with('player.category')
             ->get();
 

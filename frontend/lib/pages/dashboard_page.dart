@@ -55,6 +55,15 @@ class DashboardPageState extends State<DashboardPage> {
     _playersFuture ??= isAuth
         ? PlayerService().fetchPlayers(role: 'substitute')
         : null;
+    Tactic? selectedDropdownTactic;
+    if (_tactics != null && _selectedTactic != null) {
+      for (final tactic in _tactics!) {
+        if (tactic.id == _selectedTactic!.id) {
+          selectedDropdownTactic = tactic;
+          break;
+        }
+      }
+    }
 
     return Padding(
       padding: const EdgeInsets.all(16),
@@ -198,7 +207,7 @@ class DashboardPageState extends State<DashboardPage> {
                           ),
                         )
                       : DropdownButtonFormField<Tactic>(
-                          value: _selectedTactic,
+                          value: selectedDropdownTactic,
                           isExpanded: true,
                           decoration: InputDecoration(
                             border: OutlineInputBorder(

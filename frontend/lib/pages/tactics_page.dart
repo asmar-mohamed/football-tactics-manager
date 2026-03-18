@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/tactic.dart';
 import '../services/player_service.dart';
 import '../services/tactic_service.dart';
-import '../widgets/tactic_preview_board.dart';
+import '../widgets/tactic_layout_pitch.dart';
 
 class TacticsPage extends StatefulWidget {
   const TacticsPage({super.key});
@@ -15,8 +15,11 @@ class TacticsPage extends StatefulWidget {
 class _TacticsPageState extends State<TacticsPage> {
   final PlayerService _playerService = PlayerService();
   final TacticService _tacticService = TacticService();
+  final GlobalKey<TacticLayoutPitchState> _tacticalPitchKey =
+      GlobalKey<TacticLayoutPitchState>();
 
   bool _isLoading = true;
+  bool _isSavingPitch = false;
   String? _error;
   int? _teamId;
 
@@ -59,7 +62,11 @@ class _TacticsPageState extends State<TacticsPage> {
       }
 
       if (_tactics.isNotEmpty) {
-        _selectTactic(_tactics.first);
+        final preferred = _tactics.firstWhere(
+          (t) => !t.isDefault,
+          orElse: () => _tactics.first,
+        );
+        _selectTactic(preferred);
       } else {
         _selectedTactic = null;
       }
@@ -76,6 +83,10 @@ class _TacticsPageState extends State<TacticsPage> {
       _isCreating = false;
       _nameController.text = tactic.name;
       _formationController.text = tactic.formation;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _tacticalPitchKey.currentState?.changeTactic(tactic);
     });
   }
 
@@ -206,6 +217,326 @@ class _TacticsPageState extends State<TacticsPage> {
     }
   }
 
+  Future<void> _savePitchPositions() async {
+    final pitch = _tacticalPitchKey.currentState;
+    if (pitch == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Tactical pitch is not ready yet')),
+      );
+      return;
+    }
+
+    setState(() => _isSavingPitch = true);
+    try {
+      Tactic? tacticToSave = _selectedTactic;
+      if (tacticToSave == null || tacticToSave.isDefault) {
+        tacticToSave = await _ensureCoachTeamTactic();
+        if (tacticToSave == null) {
+          if (!mounted) return;
+          setState(() => _isSavingPitch = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'No team tactic could be assigned for the authenticated coach.',
+              ),
+            ),
+          );
+          return;
+        }
+        _selectTactic(tacticToSave);
+        await pitch.changeTactic(tacticToSave);
+      }
+
+      final result = await pitch.saveLayout();
+      if (!mounted) return;
+      setState(() => _isSavingPitch = false);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(result.message),
+          backgroundColor: result.success
+              ? Colors.green.shade600
+              : Colors.red.shade600,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isSavingPitch = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to assign a team tactic: $e'),
+          backgroundColor: Colors.red.shade600,
+        ),
+      );
+    }
+  }
+
+  Future<Tactic?> _ensureCoachTeamTactic() async {
+    if (_teamId == null) {
+      for (final tactic in _tactics) {
+        if (!tactic.isDefault && tactic.teamId != null) {
+          _teamId = tactic.teamId;
+          break;
+        }
+      }
+    }
+
+    if (_teamId == null) {
+      final players = await _playerService.fetchPlayers();
+      _teamId = players.isNotEmpty ? players.first.teamId : null;
+    }
+    if (_teamId == null) return null;
+
+    for (final tactic in _tactics) {
+      if (!tactic.isDefault && tactic.teamId == _teamId) {
+        return tactic;
+      }
+    }
+
+    final created = await _tacticService.createTactic(
+      'Main Lineup',
+      '4-3-3',
+      _teamId!,
+    );
+    _tactics = [..._tactics, created];
+    return created;
+  }
+
+  Widget _buildSavedTacticsPanel() {
+    return _Panel(
+      title: 'SAVED TACTICS',
+      backgroundColor: Colors.white,
+      titleColor: const Color(0xFF0F172A),
+      borderColor: const Color(0xFFE5E7EB),
+      contentPadding: const EdgeInsets.fromLTRB(12, 14, 10, 10),
+      expandChild: true,
+      titleAction: IconButton(
+        icon: const Icon(Icons.add_circle, color: Color(0xFF37C8DF)),
+        onPressed: _startCreating,
+        tooltip: 'Create New Tactic',
+      ),
+      child: _tactics.isEmpty
+          ? const Center(
+              child: Text(
+                'No tactics found',
+                style: TextStyle(color: Color(0xFF475569)),
+              ),
+            )
+          : ListView.separated(
+              padding: const EdgeInsets.only(
+                right: 6,
+                left: 4,
+                top: 2,
+                bottom: 8,
+              ),
+              physics: const BouncingScrollPhysics(),
+              itemCount: _tactics.length,
+              separatorBuilder: (ctx, i) => const SizedBox(height: 8),
+              itemBuilder: (ctx, i) {
+                final tactic = _tactics[i];
+                final isSelected = tactic.id == _selectedTactic?.id;
+                return InkWell(
+                  onTap: () => _selectTactic(tactic),
+                  borderRadius: BorderRadius.circular(10),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: isSelected
+                          ? const Color(0xFF37C8DF).withValues(alpha: 0.10)
+                          : const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: isSelected
+                            ? const Color(0xFF37C8DF)
+                            : const Color(0xFFE2E8F0),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                tactic.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  color: isSelected
+                                      ? const Color(0xFF0F172A)
+                                      : const Color(0xFF334155),
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                tactic.formation,
+                                style: const TextStyle(
+                                  color: Color(0xFF94A3B8),
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (tactic.isDefault)
+                          const Tooltip(
+                            message: 'Global Default',
+                            child: Icon(
+                              Icons.lock_outline,
+                              size: 16,
+                              color: Color(0xFF94A3B8),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+    );
+  }
+
+  Widget _buildPitchPanel() {
+    return _Panel(
+      title: '',
+      showTitle: false,
+      backgroundColor: Colors.transparent,
+      contentPadding: EdgeInsets.zero,
+      expandChild: true,
+      child: Stack(
+        children: [
+          Positioned.fill(child: TacticLayoutPitch(key: _tacticalPitchKey)),
+          Positioned(
+            top: 12,
+            right: 12,
+            child: OutlinedButton.icon(
+              onPressed: _isSavingPitch ? null : _savePitchPositions,
+              icon: _isSavingPitch
+                  ? const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.save_alt_outlined, size: 16),
+              label: Text(_isSavingPitch ? 'Saving...' : 'Save Positions'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: const Color(0xFF37C8DF),
+                side: const BorderSide(color: Color(0xFF37C8DF)),
+                backgroundColor: Colors.white.withValues(alpha: 0.95),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEditTacticPanel(bool readOnly) {
+    return _Panel(
+      title: _isCreating ? 'Create Tactic' : 'Edit Tactic',
+      backgroundColor: Colors.white,
+      borderColor: const Color(0xFFE5E7EB),
+      expandChild: true,
+      child: SingleChildScrollView(
+        child: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (readOnly)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Text(
+                    'This is a global strategy and cannot be modified.',
+                    style: TextStyle(
+                      color: Colors.amber.shade700,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              TextFormField(
+                controller: _nameController,
+                enabled: !readOnly,
+                decoration: const InputDecoration(
+                  labelText: 'Tactic Name',
+                  filled: true,
+                  fillColor: Color(0xFFF8FAFC),
+                  border: OutlineInputBorder(),
+                ),
+                validator: (v) =>
+                    v == null || v.isEmpty ? 'Requires a name' : null,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _formationController,
+                enabled: !readOnly,
+                decoration: const InputDecoration(
+                  labelText: 'Formation (e.g., 4-3-3)',
+                  filled: true,
+                  fillColor: Color(0xFFF8FAFC),
+                  border: OutlineInputBorder(),
+                  hintText: 'Format: x-y-z',
+                ),
+                validator: (v) {
+                  if (v == null || v.isEmpty) return 'Requires a formation';
+                  final parts = v.split('-');
+                  if (parts.length < 2) return 'Invalid format';
+                  var sum = 0;
+                  for (final p in parts) {
+                    final num = int.tryParse(p);
+                    if (num == null || num <= 0) return 'Numbers must be > 0';
+                    sum += num;
+                  }
+                  if (sum != 10) return 'Outfield players must equal 10';
+                  return null;
+                },
+              ),
+              const SizedBox(height: 12),
+              ElevatedButton(
+                onPressed: readOnly || _isLoading ? null : _saveTactic,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF37C8DF),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                child: Text(
+                  _isCreating ? 'CREATE' : 'SAVE CHANGES',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              if (!_isCreating && _selectedTactic != null) ...[
+                const SizedBox(height: 10),
+                OutlinedButton.icon(
+                  onPressed: _isLoading
+                      ? null
+                      : () => _deleteTactic(_selectedTactic!),
+                  icon: const Icon(Icons.delete_outline),
+                  label: const Text('Delete Tactic'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.red.shade600,
+                    side: BorderSide(color: Colors.red.shade200),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading && _tactics.isEmpty) {
@@ -240,293 +571,80 @@ class _TacticsPageState extends State<TacticsPage> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Left panel: List
-          Expanded(
-            flex: 1,
-            child: Card(
-              color: Colors.white,
-              elevation: 0,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-                side: const BorderSide(color: Color(0xFFE5E7EB)),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+          Expanded(flex: 12, child: _buildSavedTacticsPanel()),
+          const SizedBox(width: 12),
+          Expanded(flex: 65, child: _buildPitchPanel()),
+          const SizedBox(width: 12),
+          Expanded(flex: 20, child: _buildEditTacticPanel(readOnly)),
+        ],
+      ),
+    );
+  }
+}
+
+class _Panel extends StatelessWidget {
+  const _Panel({
+    required this.title,
+    required this.child,
+    this.expandChild = false,
+    this.showTitle = true,
+    this.backgroundColor = const Color(0xFFF5F5F5),
+    this.titleColor = Colors.black87,
+    this.borderColor,
+    this.contentPadding = const EdgeInsets.all(16),
+    this.titleAction,
+  });
+
+  final String title;
+  final Widget child;
+  final bool expandChild;
+  final bool showTitle;
+  final Color backgroundColor;
+  final Color titleColor;
+  final Color? borderColor;
+  final EdgeInsets contentPadding;
+  final Widget? titleAction;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      color: backgroundColor,
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: borderColor != null
+            ? BorderSide(color: borderColor!, width: 1)
+            : BorderSide.none,
+      ),
+      child: Padding(
+        padding: contentPadding,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (showTitle) ...[
+              Row(
                 children: [
-                  Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text(
-                          'SAVED TACTICS',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF64748B),
-                          ),
-                        ),
-                        IconButton(
-                          icon: const Icon(
-                            Icons.add_circle,
-                            color: Color(0xFF37C8DF),
-                          ),
-                          onPressed: _startCreating,
-                          tooltip: 'Create New Tactic',
-                        ),
-                      ],
-                    ),
-                  ),
-                  const Divider(height: 1),
                   Expanded(
-                    child: ListView.separated(
-                      padding: const EdgeInsets.all(8),
-                      itemCount: _tactics.length,
-                      separatorBuilder: (ctx, i) => const SizedBox(height: 4),
-                      itemBuilder: (ctx, i) {
-                        final t = _tactics[i];
-                        final isSelected = t.id == _selectedTactic?.id;
-                        return ListTile(
-                          selected: isSelected,
-                          selectedTileColor: const Color(
-                            0xFF37C8DF,
-                          ).withValues(alpha: 0.1),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          title: Text(
-                            t.name,
-                            style: TextStyle(
-                              fontWeight: isSelected
-                                  ? FontWeight.w700
-                                  : FontWeight.w500,
-                              color: isSelected
-                                  ? const Color(0xFF0F172A)
-                                  : const Color(0xFF475569),
-                            ),
-                          ),
-                          subtitle: Text(
-                            t.formation,
-                            style: const TextStyle(color: Color(0xFF94A3B8)),
-                          ),
-                          trailing: t.isDefault
-                              ? const Tooltip(
-                                  message: 'Global Default',
-                                  child: Icon(
-                                    Icons.lock_outline,
-                                    size: 16,
-                                    color: Color(0xFF94A3B8),
-                                  ),
-                                )
-                              : null,
-                          onTap: () => _selectTactic(t),
-                        );
-                      },
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        title,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                        ).copyWith(color: titleColor),
+                      ),
                     ),
                   ),
+                  ...(titleAction != null ? [titleAction!] : const <Widget>[]),
                 ],
               ),
-            ),
-          ),
-          const SizedBox(width: 16),
-          // Right panel: Form & Preview
-          Expanded(
-            flex: 2,
-            child: Card(
-              color: Colors.white,
-              elevation: 0,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-                side: const BorderSide(color: Color(0xFFE5E7EB)),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      flex: 1,
-                      child: Form(
-                        key: _formKey,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              _isCreating ? 'Create New Tactic' : 'Edit Tactic',
-                              style: const TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFF0F172A),
-                              ),
-                            ),
-                            if (readOnly) ...[
-                              const SizedBox(height: 8),
-                              Text(
-                                'This is a global strategy and cannot be modified.',
-                                style: TextStyle(
-                                  color: Colors.amber.shade700,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ],
-                            const SizedBox(height: 24),
-                            TextFormField(
-                              controller: _nameController,
-                              enabled: !readOnly,
-                              decoration: const InputDecoration(
-                                labelText: 'Tactic Name',
-                                filled: true,
-                                fillColor: Color(0xFFF8FAFC),
-                                border: OutlineInputBorder(),
-                              ),
-                              validator: (v) => v == null || v.isEmpty
-                                  ? 'Requires a name'
-                                  : null,
-                              onChanged: (v) {
-                                // Live preview update?
-                                setState(() {});
-                              },
-                            ),
-                            const SizedBox(height: 16),
-                            TextFormField(
-                              controller: _formationController,
-                              enabled: !readOnly,
-                              decoration: const InputDecoration(
-                                labelText: 'Formation (e.g., 4-3-3)',
-                                filled: true,
-                                fillColor: Color(0xFFF8FAFC),
-                                border: OutlineInputBorder(),
-                                hintText: 'Format: x-y-z',
-                              ),
-                              validator: (v) {
-                                if (v == null || v.isEmpty)
-                                  return 'Requires a formation';
-                                final parts = v.split('-');
-                                if (parts.length < 2) return 'Invalid format';
-                                int sum = 0;
-                                for (var p in parts) {
-                                  final num = int.tryParse(p);
-                                  if (num == null || num <= 0)
-                                    return 'Numbers must be > 0';
-                                  sum += num;
-                                }
-                                if (sum != 10)
-                                  return 'Outfield players must equal 10';
-                                return null;
-                              },
-                              onChanged: (v) {
-                                setState(() {}); // Live preview
-                              },
-                            ),
-                            const Spacer(),
-                            if (!readOnly)
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: ElevatedButton(
-                                      onPressed: _isLoading
-                                          ? null
-                                          : _saveTactic,
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: const Color(
-                                          0xFF37C8DF,
-                                        ),
-                                        padding: const EdgeInsets.symmetric(
-                                          vertical: 16,
-                                        ),
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(
-                                            8,
-                                          ),
-                                        ),
-                                      ),
-                                      child: _isLoading && _isCreating
-                                          ? const SizedBox(
-                                              width: 20,
-                                              height: 20,
-                                              child: CircularProgressIndicator(
-                                                color: Colors.white,
-                                                strokeWidth: 2,
-                                              ),
-                                            )
-                                          : Text(
-                                              _isCreating
-                                                  ? 'CREATE'
-                                                  : 'SAVE CHANGES',
-                                              style: const TextStyle(
-                                                color: Colors.white,
-                                                fontWeight: FontWeight.bold,
-                                              ),
-                                            ),
-                                    ),
-                                  ),
-                                  if (!_isCreating &&
-                                      _selectedTactic != null) ...[
-                                    const SizedBox(width: 12),
-                                    OutlinedButton(
-                                      onPressed: _isLoading
-                                          ? null
-                                          : () =>
-                                                _deleteTactic(_selectedTactic!),
-                                      style: OutlinedButton.styleFrom(
-                                        foregroundColor: Colors.red.shade600,
-                                        side: BorderSide(
-                                          color: Colors.red.shade200,
-                                        ),
-                                        padding: const EdgeInsets.symmetric(
-                                          vertical: 16,
-                                          horizontal: 16,
-                                        ),
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(
-                                            8,
-                                          ),
-                                        ),
-                                      ),
-                                      child: const Icon(Icons.delete_outline),
-                                    ),
-                                  ],
-                                ],
-                              ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 32),
-                    Expanded(
-                      flex: 1,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          const Text(
-                            'FORMATION PREVIEW',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFF64748B),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          Expanded(
-                            child: TacticPreviewBoard(
-                              tactic: Tactic(
-                                id: 0,
-                                name: _nameController.text,
-                                formation: _formationController.text,
-                                isDefault: false,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ],
+              const SizedBox(height: 12),
+            ],
+            if (expandChild) Expanded(child: child) else child,
+          ],
+        ),
       ),
     );
   }

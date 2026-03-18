@@ -20,6 +20,7 @@ class DatabaseSeeder extends Seeder
             DefaultTacticSeeder::class,
             TeamSeeder::class,
             PlayerSeeder::class,
+            TacticPositionSeeder::class,
         ]);
     }
 }

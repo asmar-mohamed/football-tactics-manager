@@ -21,6 +21,11 @@ class Tactic extends Model
         return $this->hasMany(PlayerPosition::class);
     }
 
+    public function slotPositions()
+    {
+        return $this->hasMany(TacticSlotPosition::class);
+    }
+
     public function tacticalInstructions()
     {
         return $this->hasMany(TacticalInstruction::class);

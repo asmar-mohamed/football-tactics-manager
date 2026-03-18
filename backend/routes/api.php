@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\TeamController;
 use App\Http\Controllers\Api\PlayerController;
 use App\Http\Controllers\Api\TacticController;
 use App\Http\Controllers\Api\PlayerPositionController;
+use App\Http\Controllers\Api\TacticSlotPositionController;
 use App\Http\Controllers\Api\TacticalInstructionController;
 use App\Http\Controllers\Api\TrainingSessionController;
 
@@ -38,6 +39,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('player-positions', [PlayerPositionController::class, 'store']);
     Route::put('player-positions/{id}', [PlayerPositionController::class, 'update']);
     Route::get('tactics/{id}/positions', [PlayerPositionController::class, 'getTacticPositions']);
+    Route::post('tactic-slot-positions', [TacticSlotPositionController::class, 'store']);
+    Route::get('tactics/{id}/slot-positions', [TacticSlotPositionController::class, 'getTacticPositions']);
 
     // NOUVEAU : Instructions tactiques (Bloc B, etc.)
     Route::post('tactical-instructions', [TacticalInstructionController::class, 'store']);

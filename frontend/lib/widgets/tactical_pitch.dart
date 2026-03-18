@@ -21,10 +21,18 @@ class _PlayerData {
   final int id;
   final String name;
   final String number;
+  final String position;
   final String category;
   Offset pos; // normalized 0-1
 
-  _PlayerData(this.id, this.name, this.number, this.category, this.pos);
+  _PlayerData(
+    this.id,
+    this.name,
+    this.number,
+    this.position,
+    this.category,
+    this.pos,
+  );
 }
 
 class TacticalPitchState extends State<TacticalPitch> {
@@ -46,9 +54,10 @@ class TacticalPitchState extends State<TacticalPitch> {
   List<Offset> _getFormationSlots(String formation) {
     List<Offset> slots = [const Offset(0.08, 0.50)]; // GK
 
-    List<int> lines = formation
-        .split('-')
-        .map((e) => int.tryParse(e) ?? 0)
+    final normalized = formation.replaceAll(RegExp(r'\s+'), '');
+    List<int> lines = RegExp(r'\d+')
+        .allMatches(normalized)
+        .map((m) => int.tryParse(m.group(0)!) ?? 0)
         .toList();
     if (lines.isEmpty ||
         lines.any((l) => l <= 0) ||
@@ -108,6 +117,8 @@ class TacticalPitchState extends State<TacticalPitch> {
   String? _error;
   int? _teamId;
   int? _tacticId;
+  Tactic? _pendingTacticChange;
+  int _changeRequestId = 0;
 
   @override
   void initState() {
@@ -127,21 +138,33 @@ class TacticalPitchState extends State<TacticalPitch> {
       if (_teamId != null) {
         allTactics = await _tacticService.fetchTactics(teamId: _teamId);
 
-        for (var t in allTactics) {
-          if (!t.isDefault && t.teamId == _teamId) {
-            activeTactic = t;
-            break;
+        if (_tacticId != null) {
+          for (final t in allTactics) {
+            if (t.id == _tacticId) {
+              activeTactic = t;
+              break;
+            }
           }
         }
 
         if (activeTactic == null) {
-          activeTactic = await _tacticService.createTactic(
-            'Main Lineup',
-            '4-3-3',
-            _teamId!,
-          );
-          allTactics.add(activeTactic);
+          for (var t in allTactics) {
+            if (!t.isDefault && t.teamId == _teamId) {
+              activeTactic = t;
+              break;
+            }
+          }
+
+          if (activeTactic == null) {
+            activeTactic = await _tacticService.createTactic(
+              'Main Lineup',
+              '4-3-3',
+              _teamId!,
+            );
+            allTactics.add(activeTactic);
+          }
         }
+
         _tacticId = activeTactic.id;
       }
 
@@ -149,27 +172,52 @@ class TacticalPitchState extends State<TacticalPitch> {
         widget.onTacticsLoaded?.call(allTactics, activeTactic);
       }
 
-      final savedPositions = _tacticId != null
-          ? await _fetchSavedPositions(_tacticId!)
-          : <int, Offset>{};
+      Map<int, Offset> savedPositions = <int, Offset>{};
+      Map<int, Offset> savedSlotPositions = <int, Offset>{};
+      if (_tacticId != null) {
+        try {
+          savedPositions = await _fetchSavedPositions(_tacticId!);
+        } catch (_) {
+          savedPositions = <int, Offset>{};
+        }
+        try {
+          savedSlotPositions = await _fetchSavedSlotPositions(_tacticId!);
+        } catch (_) {
+          savedSlotPositions = <int, Offset>{};
+        }
+      }
 
       final count = min(starters.length, _starterSlots.length);
       final defaultSlots = activeTactic != null
           ? _getFormationSlots(activeTactic.formation)
           : _starterSlots;
+      final referenceSlots = List<Offset>.generate(
+        11,
+        (i) => savedSlotPositions[i + 1] ?? defaultSlots[i],
+      );
       _players = List.generate(
         count,
         (i) => _PlayerData(
           starters[i].id,
           starters[i].name,
           starters[i].number.toString(),
+          starters[i].position,
           _categoryBadgeText(starters[i].categoryName),
-          savedPositions[starters[i].id] ?? defaultSlots[i],
+          savedSlotPositions[i + 1] ??
+              savedPositions[starters[i].id] ??
+              defaultSlots[i],
         ),
       );
+      _resolveOverlaps(referenceSlots);
 
       if (_players.isEmpty) {
         _error = 'No starter players found';
+      }
+
+      final pendingTactic = _pendingTacticChange;
+      if (pendingTactic != null) {
+        _pendingTacticChange = null;
+        Future.microtask(() => changeTactic(pendingTactic));
       }
     } catch (_) {
       _error = 'Failed to load starter players';
@@ -183,32 +231,145 @@ class TacticalPitchState extends State<TacticalPitch> {
   }
 
   Future<void> changeTactic(Tactic newTactic) async {
+    _pendingTacticChange = newTactic;
+    final requestId = ++_changeRequestId;
+
     setState(() {
       _tacticId = newTactic.id;
       _loading = true;
       _error = null;
     });
 
-    try {
-      final savedPositions = await _fetchSavedPositions(_tacticId!);
-      final slots = _getFormationSlots(newTactic.formation);
+    if (_players.isEmpty) {
+      return;
+    }
 
-      setState(() {
-        for (var i = 0; i < _players.length; i++) {
-          final p = _players[i];
-          if (savedPositions.containsKey(p.id)) {
-            p.pos = savedPositions[p.id]!;
-          } else {
-            if (i < slots.length) p.pos = slots[i];
-          }
-        }
-        _loading = false;
-      });
+    final slots = _getFormationSlots(newTactic.formation);
+    Map<int, Offset> savedPositions = <int, Offset>{};
+    Map<int, Offset> savedSlotPositions = <int, Offset>{};
+    try {
+      savedPositions = await _fetchSavedPositions(_tacticId!);
     } catch (_) {
-      setState(() {
-        _error = 'Failed to load tactic positions';
-        _loading = false;
-      });
+      savedPositions = <int, Offset>{};
+    }
+    try {
+      savedSlotPositions = await _fetchSavedSlotPositions(_tacticId!);
+    } catch (_) {
+      savedSlotPositions = <int, Offset>{};
+    }
+
+    if (!mounted || requestId != _changeRequestId) {
+      return;
+    }
+
+    final referenceSlots = List<Offset>.generate(
+      11,
+      (i) => savedSlotPositions[i + 1] ?? slots[i],
+    );
+    setState(() {
+      _pendingTacticChange = null;
+      for (var i = 0; i < _players.length; i++) {
+        final p = _players[i];
+        if (savedSlotPositions.containsKey(i + 1)) {
+          p.pos = savedSlotPositions[i + 1]!;
+        } else if (savedPositions.containsKey(p.id)) {
+          p.pos = savedPositions[p.id]!;
+        } else {
+          if (i < slots.length) p.pos = slots[i];
+        }
+      }
+      _resolveOverlaps(referenceSlots);
+      _loading = false;
+    });
+  }
+
+  bool _hasOverlap(List<_PlayerData> players, {double threshold = 0.015}) {
+    final sq = threshold * threshold;
+    for (var i = 0; i < players.length; i++) {
+      for (var j = i + 1; j < players.length; j++) {
+        if ((players[i].pos - players[j].pos).distanceSquared <= sq) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  double _preferredXForCategory(String category) {
+    switch (category) {
+      case 'GK':
+        return 0.08;
+      case 'DF':
+        return 0.25;
+      case 'MF':
+        return 0.45;
+      case 'FW':
+        return 0.75;
+      default:
+        return 0.50;
+    }
+  }
+
+  double _preferredYForPosition(String position) {
+    final p = position.toUpperCase();
+    if (p.startsWith('L') || p.contains('LW') || p.contains('LM')) return 0.20;
+    if (p.startsWith('R') || p.contains('RW') || p.contains('RM')) return 0.80;
+    return 0.50;
+  }
+
+  int _playerPriority(_PlayerData player) {
+    switch (player.category) {
+      case 'GK':
+        return 0;
+      case 'DF':
+        return 1;
+      case 'MF':
+        return 2;
+      case 'FW':
+        return 3;
+      default:
+        return 4;
+    }
+  }
+
+  double _slotScoreForPlayer(_PlayerData player, Offset slot) {
+    final d = (player.pos - slot).distanceSquared;
+    final linePenalty =
+        (_preferredXForCategory(player.category) - slot.dx).abs() * 0.70;
+    final sidePenalty =
+        (_preferredYForPosition(player.position) - slot.dy).abs() * 0.45;
+    return d + linePenalty + sidePenalty;
+  }
+
+  void _resolveOverlaps(List<Offset> referenceSlots) {
+    if (_players.length < 2 || !_hasOverlap(_players)) return;
+
+    final playerIndices = List<int>.generate(_players.length, (i) => i);
+    playerIndices.sort(
+      (a, b) =>
+          _playerPriority(_players[a]).compareTo(_playerPriority(_players[b])),
+    );
+
+    final availableSlots = List<Offset>.from(referenceSlots);
+    final usedSlotIndices = <int>{};
+
+    for (final playerIndex in playerIndices) {
+      var bestSlotIndex = -1;
+      var bestScore = double.infinity;
+      for (var slotIndex = 0; slotIndex < availableSlots.length; slotIndex++) {
+        if (usedSlotIndices.contains(slotIndex)) continue;
+        final score = _slotScoreForPlayer(
+          _players[playerIndex],
+          availableSlots[slotIndex],
+        );
+        if (score < bestScore) {
+          bestScore = score;
+          bestSlotIndex = slotIndex;
+        }
+      }
+      if (bestSlotIndex < 0) continue;
+      usedSlotIndices.add(bestSlotIndex);
+      _players[playerIndex].pos = availableSlots[bestSlotIndex];
     }
   }
 
@@ -248,6 +409,24 @@ class TacticalPitchState extends State<TacticalPitch> {
       final x = _toDouble(entry['x_position']).clamp(0.0, 1.0).toDouble();
       final y = _toDouble(entry['y_position']).clamp(0.0, 1.0).toDouble();
       map[playerId] = Offset(x, y);
+    }
+
+    return map;
+  }
+
+  Future<Map<int, Offset>> _fetchSavedSlotPositions(int tacticId) async {
+    final res = await _api.get('/tactics/$tacticId/slot-positions');
+    final positions = _extractDataList(res);
+    final map = <int, Offset>{};
+
+    for (final entry in positions) {
+      if (entry is! Map<String, dynamic>) continue;
+      final slotIndex = _toInt(entry['slot_index']);
+      if (slotIndex < 1 || slotIndex > 11) continue;
+
+      final x = _toDouble(entry['x_position']).clamp(0.0, 1.0).toDouble();
+      final y = _toDouble(entry['y_position']).clamp(0.0, 1.0).toDouble();
+      map[slotIndex] = Offset(x, y);
     }
 
     return map;
@@ -293,13 +472,11 @@ class TacticalPitchState extends State<TacticalPitch> {
       }
     }
 
-    if (activeTactic == null) {
-      activeTactic = await _tacticService.createTactic(
-        'Main Lineup',
-        '4-3-3',
-        teamId,
-      );
-    }
+    activeTactic ??= await _tacticService.createTactic(
+      'Main Lineup',
+      '4-3-3',
+      teamId,
+    );
 
     _tacticId = activeTactic.id;
     if (mounted) {
@@ -330,10 +507,18 @@ class TacticalPitchState extends State<TacticalPitch> {
         );
       }
 
-      for (final player in _players) {
+      for (var i = 0; i < _players.length; i++) {
+        final player = _players[i];
         await _api.post('/player-positions', {
           'player_id': player.id,
           'tactic_id': tacticId,
+          'x_position': double.parse(player.pos.dx.toStringAsFixed(4)),
+          'y_position': double.parse(player.pos.dy.toStringAsFixed(4)),
+        });
+
+        await _api.post('/tactic-slot-positions', {
+          'tactic_id': tacticId,
+          'slot_index': i + 1,
           'x_position': double.parse(player.pos.dx.toStringAsFixed(4)),
           'y_position': double.parse(player.pos.dy.toStringAsFixed(4)),
         });
@@ -405,6 +590,7 @@ class TacticalPitchState extends State<TacticalPitch> {
         droppedPlayer.id,
         droppedPlayer.name,
         droppedPlayer.number.toString(),
+        droppedPlayer.position,
         _categoryBadgeText(droppedPlayer.categoryName),
         position,
       );
@@ -446,6 +632,7 @@ class TacticalPitchState extends State<TacticalPitch> {
       droppedPlayer.id,
       droppedPlayer.name,
       droppedPlayer.number.toString(),
+      droppedPlayer.position,
       _categoryBadgeText(droppedPlayer.categoryName),
       replaced.pos,
     );
