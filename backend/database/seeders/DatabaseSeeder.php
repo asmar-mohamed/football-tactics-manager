@@ -17,7 +17,7 @@ class DatabaseSeeder extends Seeder
     {
         $this->call([
             CategorySeeder::class,
-            DefaultTacticSeeder::class,
+            // DefaultTacticSeeder::class,
             TeamSeeder::class,
             PlayerSeeder::class,
             TacticPositionSeeder::class,

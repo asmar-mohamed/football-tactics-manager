@@ -17,10 +17,6 @@ class StoreTacticRequest extends FormRequest
             'name' => 'required|string|max:255',
             'formation' => 'required|string|max:50',
             'team_id' => 'required|exists:teams,id',
-            'positions' => 'sometimes|array',
-            'positions.*.player_id' => 'required|exists:players,id',
-            'positions.*.x_position' => 'required|numeric',
-            'positions.*.y_position' => 'required|numeric',
         ];
     }
 }

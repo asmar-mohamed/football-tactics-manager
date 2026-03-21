@@ -5,7 +5,6 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Tactic;
 use App\Models\Team;
-use App\Models\Player;
 use Illuminate\Http\Request;
 use App\Http\Requests\StoreTacticRequest;
 use App\Http\Requests\UpdateTacticRequest;
@@ -22,17 +21,20 @@ class TacticController extends Controller
             $team = Team::findOrFail($request->team_id);
             $this->authorize('view', $team);
             $query->where('team_id', $request->team_id)
-                  ->orWhere('is_default', true); // Include defaults when asking for a team's tactics
+                  ->orWhereNull('team_id'); // Include global templates
         } else {
-            // General list for the user: their team tactics + defaults
+            // General list for the user: their team tactics + global templates
             $teamId = Auth::user()?->team?->id;
             $query->where(function ($q) use ($teamId) {
                 if ($teamId) {
                     $q->where('team_id', $teamId);
                 }
-                $q->orWhere('is_default', true);
+                $q->orWhereNull('team_id');
             });
         }
+
+        $query->orderBy('is_default', 'desc')
+              ->orderBy('id', 'asc');
 
         return response()->json([
             'message' => 'Tactics retrieved',
@@ -44,7 +46,7 @@ class TacticController extends Controller
     {
         return response()->json([
             'message' => 'Default tactics retrieved',
-            'data' => Tactic::where('is_default', true)->get()
+            'data' => Tactic::whereNull('team_id')->get()
         ]);
     }
 
@@ -54,25 +56,15 @@ class TacticController extends Controller
         $this->authorize('update', $team);
 
         $tactic = DB::transaction(function () use ($request, $team) {
+            // If they are creating a new tactic, it shouldn't be the default right away unless we want it to.
+            // Requirement: "when i create tactics he should be not the default"
             $tactic = $team->tactics()->create([
                 'name' => $request->name,
                 'formation' => $request->formation,
                 'is_default' => false,
             ]);
 
-            if ($request->has('positions')) {
-                foreach ($request->positions as $pos) {
-                    // Ensure player is on the same team
-                    $player = Player::where('team_id', $team->id)->findOrFail($pos['player_id']);
-                    $tactic->playerPositions()->create([
-                        'player_id' => $player->id,
-                        'x_position' => $pos['x_position'],
-                        'y_position' => $pos['y_position'],
-                    ]);
-                }
-            }
-
-            return $tactic->load('playerPositions');
+            return $tactic;
         });
 
         return response()->json([
@@ -83,20 +75,20 @@ class TacticController extends Controller
 
     public function show(Tactic $tactic)
     {
-        if (!$tactic->is_default) {
+        if (!is_null($tactic->team_id)) {
             $this->authorize('view', $tactic->team);
         }
         
         return response()->json([
             'message' => 'Tactic details',
-            'data' => $tactic->load(['playerPositions.player.category', 'tacticalInstructions.players'])
+            'data' => $tactic->load('tacticalInstructions.players')
         ]);
     }
 
     public function update(UpdateTacticRequest $request, Tactic $tactic)
     {
-        if ($tactic->is_default) {
-            return response()->json(['message' => 'Cannot update default tactics'], 403);
+        if (is_null($tactic->team_id)) {
+            return response()->json(['message' => 'Cannot update global template tactics'], 403);
         }
 
         $this->authorize('update', $tactic->team);
@@ -111,8 +103,8 @@ class TacticController extends Controller
 
     public function destroy(Tactic $tactic)
     {
-        if ($tactic->is_default) {
-            return response()->json(['message' => 'Cannot delete default tactics'], 403);
+        if (is_null($tactic->team_id)) {
+            return response()->json(['message' => 'Cannot delete global template tactics'], 403);
         }
 
         $this->authorize('delete', $tactic->team);

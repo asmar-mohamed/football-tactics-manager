@@ -7,20 +7,20 @@ use App\Models\Tactic;
 
 class DefaultTacticSeeder extends Seeder
 {
-    public function run(): void
-    {
-        $defaults = [
-            ['name' => 'Standard 4-4-2', 'formation' => '4-4-2', 'is_default' => true],
-            ['name' => 'Attacking 4-3-3', 'formation' => '4-3-3', 'is_default' => true],
-            ['name' => 'Defensive 5-4-1', 'formation' => '5-4-1', 'is_default' => true],
-            ['name' => 'Balanced 4-2-3-1', 'formation' => '4-2-3-1', 'is_default' => true],
-        ];
+    // public function run(): void
+    // {
+    //     $defaults = [
+    //         ['name' => 'Standard 4-4-2', 'formation' => '4-4-2', 'is_default' => false],
+    //         ['name' => 'Attacking 4-3-3', 'formation' => '4-3-3', 'is_default' => false],
+    //         ['name' => 'Defensive 5-4-1', 'formation' => '5-4-1', 'is_default' => false],
+    //         ['name' => 'Balanced 4-2-3-1', 'formation' => '4-2-3-1', 'is_default' => false],
+    //     ];
 
-        foreach ($defaults as $tactic) {
-            Tactic::firstOrCreate(
-                ['name' => $tactic['name']],
-                ['formation' => $tactic['formation'], 'is_default' => $tactic['is_default']]
-            );
-        }
-    }
+    //     foreach ($defaults as $tactic) {
+    //         Tactic::firstOrCreate(
+    //             ['name' => $tactic['name']],
+    //             ['formation' => $tactic['formation'], 'is_default' => $tactic['is_default']]
+    //         );
+    //     }
+    // }
 }

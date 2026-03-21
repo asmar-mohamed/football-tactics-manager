@@ -2,7 +2,6 @@
 
 namespace Database\Seeders;
 
-use App\Models\PlayerPosition;
 use App\Models\Tactic;
 use App\Models\TacticSlotPosition;
 use App\Models\Team;
@@ -67,31 +66,15 @@ class TacticPositionSeeder extends Seeder
                 $slots = $this->formationSlots($tactic->formation);
                 $this->upsertSlotPositions($tactic->id, $slots);
 
-                $lineupPlayerIds = $lineupPlayers->pluck('id')->all();
-                PlayerPosition::where('tactic_id', $tactic->id)
-                    ->whereNotIn('player_id', $lineupPlayerIds)
-                    ->delete();
-
-                foreach ($lineupPlayers as $index => $player) {
-                    if (!isset($slots[$index])) {
-                        continue;
-                    }
-
-                    PlayerPosition::updateOrCreate(
-                        [
-                            'tactic_id' => $tactic->id,
-                            'player_id' => $player->id,
-                        ],
-                        [
-                            'x_position' => $slots[$index]['x_position'],
-                            'y_position' => $slots[$index]['y_position'],
-                        ]
-                    );
-                }
-
                 if ($team->active_tactic_id !== $tactic->id) {
                     $team->active_tactic_id = $tactic->id;
                 }
+            }
+
+            // Mark the active tactic as is_default = true
+            if ($team->active_tactic_id) {
+                $team->tactics()->update(['is_default' => false]);
+                Tactic::where('id', $team->active_tactic_id)->update(['is_default' => true]);
             }
 
             if ($team->isDirty('active_tactic_id')) {

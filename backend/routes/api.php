@@ -6,7 +6,6 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\TeamController;
 use App\Http\Controllers\Api\PlayerController;
 use App\Http\Controllers\Api\TacticController;
-use App\Http\Controllers\Api\PlayerPositionController;
 use App\Http\Controllers\Api\TacticSlotPositionController;
 use App\Http\Controllers\Api\TacticalInstructionController;
 use App\Http\Controllers\Api\TrainingSessionController;
@@ -27,6 +26,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // 7. Gestion des équipes
     Route::apiResource('teams', TeamController::class);
+    Route::put('teams/{team}/active-tactic', [TeamController::class, 'setActiveTactic']);
 
     // 8. Gestion des joueurs
     Route::apiResource('players', PlayerController::class);
@@ -36,9 +36,6 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('tactics', TacticController::class);
 
     // 10. Gestion des positions des joueurs (Drag & Drop)
-    Route::post('player-positions', [PlayerPositionController::class, 'store']);
-    Route::put('player-positions/{id}', [PlayerPositionController::class, 'update']);
-    Route::get('tactics/{id}/positions', [PlayerPositionController::class, 'getTacticPositions']);
     Route::post('tactic-slot-positions', [TacticSlotPositionController::class, 'store']);
     Route::get('tactics/{id}/slot-positions', [TacticSlotPositionController::class, 'getTacticPositions']);
 

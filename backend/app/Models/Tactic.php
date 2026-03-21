@@ -11,14 +11,13 @@ class Tactic extends Model
 
     protected $fillable = ['name', 'formation', 'team_id', 'is_default'];
 
+    protected $casts = [
+        'is_default' => 'boolean',
+    ];
+
     public function team()
     {
         return $this->belongsTo(Team::class);
-    }
-
-    public function playerPositions()
-    {
-        return $this->hasMany(PlayerPosition::class);
     }
 
     public function slotPositions()
