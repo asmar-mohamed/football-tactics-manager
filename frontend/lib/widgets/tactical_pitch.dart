@@ -134,10 +134,26 @@ class TacticalPitchState extends State<TacticalPitch> {
 
       Tactic? activeTactic;
       List<Tactic> allTactics = [];
+      int? teamActiveTacticId;
 
       if (_teamId != null) {
+        // Fetch team data to get active_tactic_id
+        try {
+          final teamRes = await _api.get('/teams/$_teamId');
+          if (teamRes is Map<String, dynamic> && teamRes['data'] != null) {
+            final teamData = teamRes['data'];
+            if (teamData['active_tactic_id'] != null) {
+              teamActiveTacticId = _toInt(teamData['active_tactic_id']);
+              if (teamActiveTacticId <= 0) teamActiveTacticId = null;
+            }
+          }
+        } catch (_) {
+          // ignore, fall back to old logic
+        }
+
         allTactics = await _tacticService.fetchTactics(teamId: _teamId);
 
+        // Priority 1: Use the tactic ID from a pending change
         if (_tacticId != null) {
           for (final t in allTactics) {
             if (t.id == _tacticId) {
@@ -147,22 +163,48 @@ class TacticalPitchState extends State<TacticalPitch> {
           }
         }
 
-        if (activeTactic == null) {
-          for (var t in allTactics) {
-            if (!t.isDefault && t.teamId == _teamId) {
+        // Priority 2: Use the team's persisted active_tactic_id
+        if (activeTactic == null && teamActiveTacticId != null) {
+          for (final t in allTactics) {
+            if (t.id == teamActiveTacticId) {
               activeTactic = t;
               break;
             }
           }
+        }
 
-          if (activeTactic == null) {
-            activeTactic = await _tacticService.createTactic(
-              'Main Lineup',
-              '4-3-3',
-              _teamId!,
-            );
-            allTactics.add(activeTactic);
+        // Priority 3: Find the team's active tactic
+        if (activeTactic == null) {
+          for (var t in allTactics) {
+            if (t.isDefault && t.teamId == _teamId) {
+              activeTactic = t;
+              break;
+            }
           }
+        }
+
+        // Fallback: Find any team tactic
+        if (activeTactic == null) {
+          for (var t in allTactics) {
+            if (t.teamId == _teamId) {
+              activeTactic = t;
+              break;
+            }
+          }
+        }
+
+        // Priority 4: Create a new tactic if none exist
+        if (activeTactic == null) {
+          activeTactic = await _tacticService.createTactic(
+            'Main Lineup',
+            '4-3-3',
+            _teamId!,
+          );
+          allTactics.add(activeTactic);
+          // Persist it as the active tactic
+          try {
+            await _tacticService.setActiveTactic(_teamId!, activeTactic.id);
+          } catch (_) {}
         }
 
         _tacticId = activeTactic.id;
@@ -172,14 +214,8 @@ class TacticalPitchState extends State<TacticalPitch> {
         widget.onTacticsLoaded?.call(allTactics, activeTactic);
       }
 
-      Map<int, Offset> savedPositions = <int, Offset>{};
       Map<int, Offset> savedSlotPositions = <int, Offset>{};
       if (_tacticId != null) {
-        try {
-          savedPositions = await _fetchSavedPositions(_tacticId!);
-        } catch (_) {
-          savedPositions = <int, Offset>{};
-        }
         try {
           savedSlotPositions = await _fetchSavedSlotPositions(_tacticId!);
         } catch (_) {
@@ -204,7 +240,6 @@ class TacticalPitchState extends State<TacticalPitch> {
           starters[i].position,
           _categoryBadgeText(starters[i].categoryName),
           savedSlotPositions[i + 1] ??
-              savedPositions[starters[i].id] ??
               defaultSlots[i],
         ),
       );
@@ -245,13 +280,7 @@ class TacticalPitchState extends State<TacticalPitch> {
     }
 
     final slots = _getFormationSlots(newTactic.formation);
-    Map<int, Offset> savedPositions = <int, Offset>{};
     Map<int, Offset> savedSlotPositions = <int, Offset>{};
-    try {
-      savedPositions = await _fetchSavedPositions(_tacticId!);
-    } catch (_) {
-      savedPositions = <int, Offset>{};
-    }
     try {
       savedSlotPositions = await _fetchSavedSlotPositions(_tacticId!);
     } catch (_) {
@@ -272,8 +301,6 @@ class TacticalPitchState extends State<TacticalPitch> {
         final p = _players[i];
         if (savedSlotPositions.containsKey(i + 1)) {
           p.pos = savedSlotPositions[i + 1]!;
-        } else if (savedPositions.containsKey(p.id)) {
-          p.pos = savedPositions[p.id]!;
         } else {
           if (i < slots.length) p.pos = slots[i];
         }
@@ -396,23 +423,6 @@ class TacticalPitchState extends State<TacticalPitch> {
     return const [];
   }
 
-  Future<Map<int, Offset>> _fetchSavedPositions(int tacticId) async {
-    final res = await _api.get('/tactics/$tacticId/positions');
-    final positions = _extractDataList(res);
-    final map = <int, Offset>{};
-
-    for (final entry in positions) {
-      if (entry is! Map<String, dynamic>) continue;
-      final playerId = _toInt(entry['player_id']);
-      if (playerId <= 0) continue;
-
-      final x = _toDouble(entry['x_position']).clamp(0.0, 1.0).toDouble();
-      final y = _toDouble(entry['y_position']).clamp(0.0, 1.0).toDouble();
-      map[playerId] = Offset(x, y);
-    }
-
-    return map;
-  }
 
   Future<Map<int, Offset>> _fetchSavedSlotPositions(int tacticId) async {
     final res = await _api.get('/tactics/$tacticId/slot-positions');
@@ -466,9 +476,18 @@ class TacticalPitchState extends State<TacticalPitch> {
     final tactics = await _tacticService.fetchTactics(teamId: teamId);
     Tactic? activeTactic;
     for (final t in tactics) {
-      if (!t.isDefault && t.teamId == teamId) {
+      if (t.isDefault && t.teamId == teamId) {
         activeTactic = t;
         break;
+      }
+    }
+    
+    if (activeTactic == null) {
+      for (final t in tactics) {
+        if (t.teamId == teamId) {
+          activeTactic = t;
+          break;
+        }
       }
     }
 
@@ -479,6 +498,12 @@ class TacticalPitchState extends State<TacticalPitch> {
     );
 
     _tacticId = activeTactic.id;
+
+    // Persist the active tactic on the team
+    try {
+      await _tacticService.setActiveTactic(teamId, activeTactic.id);
+    } catch (_) {}
+
     if (mounted) {
       final list = [...tactics];
       if (!list.any((t) => t.id == activeTactic!.id)) {
@@ -509,12 +534,6 @@ class TacticalPitchState extends State<TacticalPitch> {
 
       for (var i = 0; i < _players.length; i++) {
         final player = _players[i];
-        await _api.post('/player-positions', {
-          'player_id': player.id,
-          'tactic_id': tacticId,
-          'x_position': double.parse(player.pos.dx.toStringAsFixed(4)),
-          'y_position': double.parse(player.pos.dy.toStringAsFixed(4)),
-        });
 
         await _api.post('/tactic-slot-positions', {
           'tactic_id': tacticId,
@@ -522,6 +541,15 @@ class TacticalPitchState extends State<TacticalPitch> {
           'x_position': double.parse(player.pos.dx.toStringAsFixed(4)),
           'y_position': double.parse(player.pos.dy.toStringAsFixed(4)),
         });
+      }
+
+      // Persist the active tactic on the team
+      if (_teamId != null) {
+        try {
+          await _tacticService.setActiveTactic(_teamId!, tacticId);
+        } catch (_) {
+          // non-blocking
+        }
       }
 
       return (success: true, message: 'Lineup saved successfully');

@@ -63,8 +63,11 @@ class _TacticsPageState extends State<TacticsPage> {
 
       if (_tactics.isNotEmpty) {
         final preferred = _tactics.firstWhere(
-          (t) => !t.isDefault,
-          orElse: () => _tactics.first,
+          (t) => t.isDefault && t.teamId != null,
+          orElse: () => _tactics.firstWhere(
+            (t) => t.teamId != null,
+            orElse: () => _tactics.first,
+          ),
         );
         _selectTactic(preferred);
       } else {
@@ -128,8 +131,8 @@ class _TacticsPageState extends State<TacticsPage> {
           );
         }
       } else if (_selectedTactic != null) {
-        if (_selectedTactic!.isDefault) {
-          throw Exception('Cannot edit global default tactics');
+        if (_selectedTactic!.teamId == null) {
+          throw Exception('Cannot edit global template tactics');
         }
 
         final updated = await _tacticService.updateTactic(
@@ -160,7 +163,7 @@ class _TacticsPageState extends State<TacticsPage> {
   }
 
   Future<void> _deleteTactic(Tactic tactic) async {
-    if (tactic.isDefault) {
+    if (tactic.teamId == null) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -229,7 +232,7 @@ class _TacticsPageState extends State<TacticsPage> {
     setState(() => _isSavingPitch = true);
     try {
       Tactic? tacticToSave = _selectedTactic;
-      if (tacticToSave == null || tacticToSave.isDefault) {
+      if (tacticToSave == null || tacticToSave.teamId == null) {
         tacticToSave = await _ensureCoachTeamTactic();
         if (tacticToSave == null) {
           if (!mounted) return;
@@ -274,7 +277,7 @@ class _TacticsPageState extends State<TacticsPage> {
   Future<Tactic?> _ensureCoachTeamTactic() async {
     if (_teamId == null) {
       for (final tactic in _tactics) {
-        if (!tactic.isDefault && tactic.teamId != null) {
+        if (tactic.teamId != null) {
           _teamId = tactic.teamId;
           break;
         }
@@ -288,7 +291,12 @@ class _TacticsPageState extends State<TacticsPage> {
     if (_teamId == null) return null;
 
     for (final tactic in _tactics) {
-      if (!tactic.isDefault && tactic.teamId == _teamId) {
+      if (tactic.isDefault && tactic.teamId == _teamId) {
+        return tactic;
+      }
+    }
+    for (final tactic in _tactics) {
+      if (tactic.teamId == _teamId) {
         return tactic;
       }
     }
@@ -383,13 +391,22 @@ class _TacticsPageState extends State<TacticsPage> {
                             ],
                           ),
                         ),
-                        if (tactic.isDefault)
+                        if (tactic.teamId == null)
                           const Tooltip(
                             message: 'Global Default',
                             child: Icon(
                               Icons.lock_outline,
                               size: 16,
                               color: Color(0xFF94A3B8),
+                            ),
+                          ),
+                        if (tactic.teamId != null && tactic.isDefault)
+                          const Tooltip(
+                            message: 'Active Tactic',
+                            child: Icon(
+                              Icons.check_circle,
+                              size: 16,
+                              color: Color(0xFF37C8DF),
                             ),
                           ),
                       ],
@@ -564,7 +581,7 @@ class _TacticsPageState extends State<TacticsPage> {
       );
     }
 
-    final readOnly = _selectedTactic?.isDefault == true;
+    final readOnly = _selectedTactic != null && _selectedTactic!.teamId == null;
 
     return Padding(
       padding: const EdgeInsets.all(16),

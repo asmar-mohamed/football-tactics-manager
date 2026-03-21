@@ -43,6 +43,12 @@ class TacticService {
     await _api.delete('/tactics/$id');
   }
 
+  Future<void> setActiveTactic(int teamId, int tacticId) async {
+    await _api.put('/teams/$teamId/active-tactic', {
+      'tactic_id': tacticId,
+    });
+  }
+
   List<dynamic> _extractDataList(dynamic response) {
     if (response is Map<String, dynamic>) {
       final data = response['data'];
