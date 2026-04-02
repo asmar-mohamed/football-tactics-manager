@@ -44,8 +44,9 @@ class PlayerSeeder extends Seeder
         ];
 
         foreach ($players as $playerData) {
-            $team->players()->create([
+            $team->players()->updateOrCreate([
                 'name' => $playerData['name'],
+            ], [
                 'number' => $playerData['number'],
                 'position' => $playerData['position'],
                 'role' => $playerData['role'],
